@@ -17,6 +17,7 @@
 #include "../engine/hotkey.h"
 #include "../engine/util.h"
 #include "artwork.h"
+#include "logo.h"
 
 using namespace yy;
 namespace {
@@ -854,13 +855,8 @@ void Paint(HWND wnd) {
     Gdiplus::Pen divider(C(Mix(kLine, pal.accent, 0.12)), 1);
     g.DrawLine(&divider, float(kSide) - 0.5f, 0.0f, float(kSide) - 0.5f, float(kH) + 2);
     // 标志
-    RectF logo(24, 30, 40, 40);
-    Gdiplus::GraphicsPath lp;
-    RoundPath(lp, logo, 12);
-    Gdiplus::LinearGradientBrush lgb(Gdiplus::PointF(24, 30), Gdiplus::PointF(64, 70), C(Mix(pal.accent, kWhite, 0.25)),
-                                     C(Darken(pal.accent, 4.0)));
-    g.FillPath(&lgb, &lp);
-    Text(g, L"yy", logo, 19, kWhite, true, Center, false, L"Segoe UI");
+    DrawLogo(g, RectF(24, 30, 40, 40), C(Mix(pal.accent, kWhite, 0.25)), C(Darken(pal.accent, 4.0)),
+             LogoDetail(40.0f * float(dpi) / 96));
     Text(g, L"yy 输入法", RectF(76, 30, 140, 22), 16.5f, kText, true);
     Text(g, L"偏好设置", RectF(76, 52, 140, 18), 12, kSub);
     DrawCompanion(g);
