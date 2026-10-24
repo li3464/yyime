@@ -1,0 +1,15 @@
+# 编译产物和安装包
+build/
+dist/
+*.exe
+*.dll
+*.o
+*.res
+
+# 词库：原始文件是下载的第三方数据，二进制词库是编译出来的，都能用 tools/fetch_data.ps1 重新生成
+data_src/
+data/
+
+# 编辑器
+.vscode/
+*.log

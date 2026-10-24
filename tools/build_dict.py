@@ -1,0 +1,297 @@
+"""把 Rime 格式的词库编译成 yy输入法 用的二进制词库。
+
+用法: python -I build_dict.py <data_src目录> <输出目录> <报告文件>
+
+输出:
+  pinyin.bin   拼音词库（按音节序列建的前缀树）
+  wubi86.bin   五笔码表（按编码排序）
+  english.bin  英文单词表（按小写排序）
+
+所有整数都是小端序，文字统一存成 UTF-16LE，方便 C++ 那边直接用。
+"""
+import math
+import os
+import re
+import struct
+import sys
+from collections import defaultdict, deque
+
+# 声母（可空）+ 以元音开头的韵母；另外几个叹词音节单独放行
+SYL_RE = re.compile(r'^(?:zh|ch|sh|[bpmfdtnlgkhjqxrzcsyw])?[aeiouv][a-z]{0,4}$|^(?:m|n|ng|hm|hng)$')
+SPELLING_FIX = {'lue': 'lve', 'nue': 'nve'}
+COST_SCALE = 1000.0  # 代价 = -ln(概率) * 1000，存成 uint16
+
+
+def rime_rows(path):
+    """逐行产出 Rime 词库正文（'...' 之后）里的字段，跳过注释和空行。"""
+    in_body = False
+    with open(path, encoding='utf-8') as f:
+        for raw in f:
+            line = raw.rstrip('\r\n')
+            if not in_body:
+                in_body = line.strip() == '...'
+                continue
+            if line and not line.startswith('#'):
+                yield line.split('\t')
+
+
+def parse_weight(s):
+    s = s.strip()
+    if not s or s.endswith('%'):
+        return None
+    try:
+        return float(s)
+    except ValueError:
+        return None
+
+
+def is_han(ch):
+    cp = ord(ch)
+    return (0x3400 <= cp <= 0x9FFF or 0xF900 <= cp <= 0xFAFF or 0x20000 <= cp <= 0x3FFFF
+            or ch == '〇')
+
+
+def to_cost(weight, total):
+    c = -math.log(max(weight, 1.0) / total) * COST_SCALE
+    return max(0, min(65535, int(round(c))))
+
+
+def utf16_units(s):
+    return len(s.encode('utf-16-le')) // 2
+
+
+class TextPool:
+    """去重的 UTF-16 字符串池，偏移量以 UTF-16 码元计。"""
+
+    def __init__(self):
+        self.parts = []
+        self.size = 0
+        self.index = {}
+
+    def add(self, s):
+        off = self.index.get(s)
+        if off is None:
+            off = self.size
+            self.index[s] = off
+            self.parts.append(s)
+            self.size += utf16_units(s)
+        return off
+
+    def blob(self):
+        return ''.join(self.parts).encode('utf-16-le')
+
+
+def pad4(b):
+    return b + b'\0' * (-len(b) % 4)
+
+
+# ---------------------------------------------------------------- 拼音
+
+PINYIN_SOURCES = [
+    # (文件, 没写词频时给的默认词频)
+    ('rime-ice/cn_dicts_8105.dict.yaml', 1.0),
+    ('rime-ice/cn_dicts_base.dict.yaml', 1.0),
+    ('rime-ice/cn_dicts_ext.dict.yaml', 1.0),
+    ('rime-ice/cn_dicts_others.dict.yaml', 1.0),  # 容错读音，放最后面
+]
+
+
+def load_pinyin_entries(src, log):
+    merged = {}  # (词, 音节元组) -> 词频
+    skipped = defaultdict(int)
+    syl_seen = defaultdict(int)
+    for rel, default_w in PINYIN_SOURCES:
+        n = 0
+        for row in rime_rows(os.path.join(src, rel)):
+            if len(row) < 2:
+                skipped['列数不够'] += 1
+                continue
+            text = row[0].strip()
+            syls = [SPELLING_FIX.get(s, s) for s in row[1].strip().lower().split()]
+            if not text or not syls:
+                skipped['空字段'] += 1
+                continue
+            if not all(is_han(ch) for ch in text):
+                skipped['含非汉字'] += 1
+                continue
+            if len(text) != len(syls):
+                skipped['字数和音节数不符'] += 1
+                continue
+            if not all(SYL_RE.match(s) for s in syls):
+                skipped['音节不合法'] += 1
+                continue
+            w = parse_weight(row[2]) if len(row) > 2 else None
+            if w is None:
+                w = default_w
+            key = (text, tuple(syls))
+            if merged.get(key, -1.0) < w:
+                merged[key] = w
+            for s in syls:
+                syl_seen[s] += 1
+            n += 1
+        log(f'{rel}: 收了 {n} 条')
+    for k, v in sorted(skipped.items()):
+        log(f'跳过（{k}）: {v}')
+    return merged, syl_seen
+
+
+def build_trie(keys):
+    """keys: 排好序的音节 id 元组列表。按层（BFS）生成节点，让每个节点的孩子连续存放。
+    返回 nodes: [syl, first_child, child_count, key_index]"""
+    nodes = [[0, 0, 0, -1]]
+    queue = deque([(0, 0, len(keys), 0)])
+    while queue:
+        ni, lo, hi, depth = queue.popleft()
+        i = lo
+        if i < hi and len(keys[i]) == depth:
+            nodes[ni][3] = i
+            i += 1
+        first = len(nodes)
+        count = 0
+        while i < hi:
+            s = keys[i][depth]
+            j = i + 1
+            while j < hi and keys[j][depth] == s:
+                j += 1
+            nodes.append([s, 0, 0, -1])
+            queue.append((len(nodes) - 1, i, j, depth + 1))
+            count += 1
+            i = j
+        nodes[ni][1] = first
+        nodes[ni][2] = count
+    return nodes
+
+
+def build_pinyin(src, out_path, log):
+    merged, syl_seen = load_pinyin_entries(src, log)
+    syllables = sorted(syl_seen)
+    syl_id = {s: i for i, s in enumerate(syllables)}
+    log(f'音节 {len(syllables)} 个: ' + ' '.join(syllables))
+    rare = [f'{s}({syl_seen[s]})' for s in syllables if syl_seen[s] < 5]
+    log('很少用到的音节: ' + ' '.join(rare))
+
+    total = sum(merged.values())
+    by_key = defaultdict(list)
+    for (text, syls), w in merged.items():
+        by_key[tuple(syl_id[s] for s in syls)].append((to_cost(w, total), text))
+    keys = sorted(by_key)
+    nodes = build_trie(keys)
+
+    pool = TextPool()
+    entry_blob = bytearray()
+    node_blob = bytearray()
+    entry_count = 0
+    for syl, first_child, child_count, ki in nodes:
+        first_entry = entry_count
+        n = 0
+        if ki >= 0:
+            for cost, text in sorted(by_key[keys[ki]]):
+                entry_blob += struct.pack('<IHH', pool.add(text), utf16_units(text), cost)
+                n += 1
+        entry_count += n
+        node_blob += struct.pack('<IIIHH', first_child, first_entry, n, syl, child_count)
+
+    syl_blob = b''.join(s.encode('ascii').ljust(8, b'\0') for s in syllables)
+    text_blob = pool.blob()
+    header_size = 64
+    off_syl = header_size
+    off_nodes = off_syl + len(syl_blob)
+    off_entries = off_nodes + len(node_blob)
+    off_text = off_entries + len(entry_blob)
+    header = struct.pack('<8sIIIIIIII', b'YYPYDIC1', len(syllables), len(nodes), entry_count,
+                         pool.size, off_syl, off_nodes, off_entries, off_text)
+    with open(out_path, 'wb') as f:
+        f.write(header.ljust(header_size, b'\0'))
+        f.write(syl_blob)
+        f.write(node_blob)
+        f.write(entry_blob)
+        f.write(text_blob)
+    log(f'pinyin.bin: 词条 {entry_count}，节点 {len(nodes)}，文字 {pool.size} 码元，'
+        f'{os.path.getsize(out_path) / 1048576:.1f} MB')
+
+    # 抽查几个读音的前几名，看词频合不合理
+    for probe in ['de', 'shi', 'ni hao', 'zhong guo', 'xi an', 'xian', 'fang an', 'jin tian']:
+        ids = tuple(syl_id.get(s, -1) for s in probe.split())
+        items = sorted(by_key.get(ids, []))[:8]
+        log(f'  [{probe}] ' + ' '.join(f'{t}:{c}' for c, t in items))
+    chars = sum(w for (t, _), w in merged.items() if len(t) == 1)
+    log(f'单字词频占比 {chars / total:.3f}，总词频 {total:.3g}')
+
+
+# ---------------------------------------------------------------- 五笔
+
+def build_wubi(src, out_path, log):
+    merged = {}
+    skipped = 0
+    for row in rime_rows(os.path.join(src, 'rime-wubi/wubi86.dict.yaml')):
+        if len(row) < 2:
+            skipped += 1
+            continue
+        text, code = row[0].strip(), row[1].strip().lower()
+        if not text or not code.isascii() or not code.isalpha() or len(code) > 4:
+            skipped += 1
+            continue
+        w = (parse_weight(row[2]) if len(row) > 2 else None) or 1.0
+        key = (code, text)
+        if merged.get(key, -1.0) < w:
+            merged[key] = w
+    total = sum(merged.values())
+    rows = sorted((code, to_cost(w, total), text) for (code, text), w in merged.items())
+    pool = TextPool()
+    entry_blob = bytearray()
+    for code, cost, text in rows:
+        entry_blob += struct.pack('<4sIHH', code.encode('ascii'), pool.add(text), utf16_units(text), cost)
+    write_flat(out_path, b'YYWBDIC1', len(rows), pool, entry_blob)
+    log(f'wubi86.bin: {len(rows)} 条（跳过 {skipped}），{os.path.getsize(out_path) / 1048576:.1f} MB')
+    for probe in ['a', 'g', 'aa', 'wq', 'trnt', 'tmlk']:
+        log(f'  [{probe}] ' + ' '.join(f'{t}:{c}' for code, c, t in rows if code == probe))
+
+
+# ---------------------------------------------------------------- 英文
+
+def build_english(src, out_path, log):
+    words = set()
+    for rel in ['rime-ice/en_dicts_en.dict.yaml', 'rime-ice/en_dicts_en_ext.dict.yaml']:
+        for row in rime_rows(os.path.join(src, rel)):
+            w = row[0].strip()
+            if 2 <= len(w) <= 30 and w.isascii() and w.isalpha():
+                words.add(w)
+    rows = sorted(words, key=lambda w: (w.lower(), w))
+    pool = TextPool()
+    entry_blob = bytearray()
+    for w in rows:
+        flags = 1 if any(c.isupper() for c in w) else 0
+        entry_blob += struct.pack('<IHH', pool.add(w), len(w), flags)
+    write_flat(out_path, b'YYENDIC1', len(rows), pool, entry_blob)
+    log(f'english.bin: {len(rows)} 个单词，{os.path.getsize(out_path) / 1024:.0f} KB')
+
+
+def write_flat(out_path, magic, count, pool, entry_blob):
+    header_size = 64
+    off_entries = header_size
+    off_text = off_entries + len(pad4(bytes(entry_blob)))
+    header = struct.pack('<8sIIII', magic, count, pool.size, off_entries, off_text)
+    with open(out_path, 'wb') as f:
+        f.write(header.ljust(header_size, b'\0'))
+        f.write(pad4(bytes(entry_blob)))
+        f.write(pool.blob())
+
+
+def main():
+    src, out_dir, report = sys.argv[1], sys.argv[2], sys.argv[3]
+    os.makedirs(out_dir, exist_ok=True)
+    lines = []
+
+    def log(msg):
+        lines.append(msg)
+        with open(report, 'w', encoding='utf-8') as f:
+            f.write('\n'.join(lines) + '\n')
+
+    build_pinyin(src, os.path.join(out_dir, 'pinyin.bin'), log)
+    build_wubi(src, os.path.join(out_dir, 'wubi86.bin'), log)
+    build_english(src, os.path.join(out_dir, 'english.bin'), log)
+    log('完成')
+
+
+if __name__ == '__main__':
+    main()
