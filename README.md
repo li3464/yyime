@@ -75,7 +75,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1      # �
 - [rime-wubi](https://github.com/rime/rime-wubi)（RIME 社区）：五笔86 码表
 - [rime-octagram-data](https://github.com/lotem/rime-octagram-data) 和 [librime-octagram](https://github.com/lotem/librime-octagram)（lotem 佛振）：整句语言模型和读取方法
 
-AI 娘皮肤和输入法图标里的角色形象来自 B 站画师 **ZipZipPipe**（[B 站主页](https://space.bilibili.com/4168597)），2026 年 10 月获作者授权使用，感谢 ZipZipPipe 的授权！插画按原作形象用 AI 生成，MiniMax、Kimi 两款为补充设计。这些图片的权利归原作者，未经作者同意请勿单独拿去他用。
+AI 娘皮肤和输入法图标里的角色形象来自 B 站画师 **ZipZipPipe**（[B 站主页](https://space.bilibili.com/4168597)）。
 
 ## 注意
 
