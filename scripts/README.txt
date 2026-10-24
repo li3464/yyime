@@ -61,5 +61,6 @@
   本地语言模型与算法参考：见 licenses\NOTICE.txt 和附带许可证
 
 【致谢】
+  感谢雾凇拼音 rime-ice、rime-wubi、rime-octagram 这些开源项目提供词库和整句模型！
   AI 娘皮肤和图标的角色形象来自 B 站画师 ZipZipPipe，已获作者授权使用，感谢！
   B 站主页：https://space.bilibili.com/4168597
