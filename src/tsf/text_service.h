@@ -77,6 +77,8 @@ class TextService final : public ITfTextInputProcessorEx,
   void UninitThreadMgrSinks();
   bool InitKeySink();
   void UninitKeySink();
+  void PreserveShiftKey(bool on);
+  bool TakeShiftTap();  // 刚才是不是单按了一下 Shift（看完就清掉，防止重复切换）
   void InitCompartment();
   void UninitCompartment();
   void InitDisplayAttributeAtom();
@@ -151,9 +153,9 @@ class TextService final : public ITfTextInputProcessorEx,
   bool threadFocused_ = true;
 
   // Shift 单击检测
-  bool shiftDown_ = false;
   bool shiftAlone_ = false;
   DWORD shiftDownAt_ = 0;
+  bool shiftPreserved_ = false;
 };
 
 }  // namespace yy

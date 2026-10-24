@@ -333,14 +333,40 @@ bool TextService::InitKeySink() {
   Com<ITfKeystrokeMgr> km;
   if (FAILED(threadMgr_->QueryInterface(IID_ITfKeystrokeMgr, km.putVoid()))) return false;
   keySinkAdvised_ = SUCCEEDED(km->AdviseKeyEventSink(clientId_, static_cast<ITfKeyEventSink*>(this), TRUE));
+  if (keySinkAdvised_) PreserveShiftKey(true);
   return keySinkAdvised_;
 }
 
 void TextService::UninitKeySink() {
   if (!threadMgr_ || !keySinkAdvised_) return;
+  PreserveShiftKey(false);
   Com<ITfKeystrokeMgr> km;
   if (SUCCEEDED(threadMgr_->QueryInterface(IID_ITfKeystrokeMgr, km.putVoid()))) km->UnadviseKeyEventSink(clientId_);
   keySinkAdvised_ = false;
+}
+
+// 有些程序不把“松开 Shift”交给输入法的按键处理，但登记过的热键一定会送到（微软示例也是这么做的）
+void TextService::PreserveShiftKey(bool on) {
+  if (!threadMgr_ || on == shiftPreserved_) return;
+  Com<ITfKeystrokeMgr> km;
+  if (FAILED(threadMgr_->QueryInterface(IID_ITfKeystrokeMgr, km.putVoid()))) return;
+  TF_PRESERVEDKEY key{};
+  key.uVKey = VK_SHIFT;
+  key.uModifiers = TF_MOD_ON_KEYUP;
+  if (on) {
+    static const wchar_t kDesc[] = L"中/英切换";
+    shiftPreserved_ = SUCCEEDED(km->PreserveKey(clientId_, GUID_YYIME_KEY_SHIFT, &key, kDesc, ULONG(wcslen(kDesc))));
+    Log(L"登记 Shift 热键：%d", int(shiftPreserved_));
+  } else {
+    km->UnpreserveKey(GUID_YYIME_KEY_SHIFT, &key);
+    shiftPreserved_ = false;
+  }
+}
+
+bool TextService::TakeShiftTap() {
+  bool tap = shiftAlone_ && GetTickCount() - shiftDownAt_ < 600;
+  shiftAlone_ = false;
+  return tap;
 }
 
 void TextService::InitDisplayAttributeAtom() {
@@ -501,12 +527,12 @@ bool TextService::MatchHotkey(const KeyEvent& k) const {
 
 STDMETHODIMP TextService::OnSetFocus(BOOL) { return S_OK; }
 
-STDMETHODIMP TextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM, BOOL* eaten) {
+STDMETHODIMP TextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* eaten) {
   if (!eaten) return E_INVALIDARG;
   *eaten = FALSE;
   if (wParam == VK_SHIFT) {
-    if (!shiftDown_) {
-      shiftDown_ = true;
+    // 第 30 位是“之前就按着”，按住不放时的自动重复不算新的一次
+    if (!(lParam & (LPARAM(1) << 30))) {
       shiftAlone_ = true;
       shiftDownAt_ = GetTickCount();
     }
@@ -524,10 +550,15 @@ STDMETHODIMP TextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM, 
   return S_OK;
 }
 
-STDMETHODIMP TextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM, BOOL* eaten) {
+STDMETHODIMP TextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lParam, BOOL* eaten) {
   if (!eaten) return E_INVALIDARG;
   *eaten = FALSE;
-  if (wParam != VK_SHIFT) shiftAlone_ = false;
+  if (wParam != VK_SHIFT) {
+    shiftAlone_ = false;
+  } else if (!(lParam & (LPARAM(1) << 30)) && !shiftAlone_) {
+    shiftAlone_ = true;
+    shiftDownAt_ = GetTickCount();
+  }
   if (IsKeyboardDisabled(pic)) return S_OK;
   if (pic != lastContext_) {
     if (lastContext_) lastContext_->Release();
@@ -553,10 +584,9 @@ STDMETHODIMP TextService::OnTestKeyUp(ITfContext* pic, WPARAM wParam, LPARAM, BO
   if (!eaten) return E_INVALIDARG;
   *eaten = FALSE;
   if (wParam != VK_SHIFT) return S_OK;
-  bool tap = shiftDown_ && shiftAlone_ && GetTickCount() - shiftDownAt_ < 500;
-  shiftDown_ = false;
-  shiftAlone_ = false;
-  if (tap && pic && !IsKeyboardDisabled(pic)) {
+  // 能收到松开 Shift 的程序在这里切；收不到的靠下面登记的热键
+  if (TakeShiftTap() && pic && !IsKeyboardDisabled(pic)) {
+    Log(L"Shift 单按（按键通知）");
     SessionResult r = session_.OnShiftTap();
     HandleResult(pic, r);
   }
@@ -567,8 +597,17 @@ STDMETHODIMP TextService::OnKeyUp(ITfContext* pic, WPARAM wParam, LPARAM lParam,
   return OnTestKeyUp(pic, wParam, lParam, eaten);
 }
 
-STDMETHODIMP TextService::OnPreservedKey(ITfContext*, REFGUID, BOOL* eaten) {
-  if (eaten) *eaten = FALSE;
+STDMETHODIMP TextService::OnPreservedKey(ITfContext* pic, REFGUID rguid, BOOL* eaten) {
+  if (!eaten) return E_INVALIDARG;
+  *eaten = FALSE;
+  if (!IsEqualGUID(rguid, GUID_YYIME_KEY_SHIFT)) return S_OK;
+  ITfContext* ctx = pic ? pic : (compositionContext_ ? compositionContext_ : lastContext_);
+  if (TakeShiftTap() && !IsKeyboardDisabled(ctx)) {
+    Log(L"Shift 单按（热键）");
+    SessionResult r = session_.OnShiftTap();
+    HandleResult(ctx, r);
+    *eaten = r.modeChanged ? TRUE : FALSE;
+  }
   return S_OK;
 }
 
