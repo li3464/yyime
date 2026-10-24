@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <climits>
 #include <unordered_map>
+#include <unordered_set>
 
 #include "util.h"
 
@@ -20,9 +21,9 @@ const ShuangpinScheme* Dictionaries::Shuangpin(Scheme s) const {
 namespace {
 
 constexpr size_t kMaxDepth = 24;     // 一个词最多多少个音节
-constexpr int kTopPerNode = 24;      // 每个词典节点最多取几个词进候选
+constexpr int kTopPerNode = 24;      // 简拼、模糊音、补全的节点最多取几个词进候选
 constexpr int kRawCost = 25000;      // 认不出的字母，组句时按一个很生僻的字算
-constexpr size_t kMaxCands = 400;
+constexpr size_t kMaxCands = 400;  // 候选到这么多就不再加简拼、模糊音这些猜的；拼完整的字词不受限
 
 struct Path {
   std::vector<uint16_t> syls;
@@ -281,16 +282,24 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
   // ---- 从头开始的词：覆盖得越长越靠前，同样长的按代价
   std::vector<Candidate> words;
   std::unordered_map<std::wstring, size_t> seen;
+  std::unordered_set<std::wstring> exact;  // 拼完整拼对的（没走简拼、模糊音、补全）
+  auto keyOf = [](std::wstring_view text, int end) {
+    std::wstring key(text);
+    key += wchar_t(1);
+    key += wchar_t(end + 1);
+    return key;
+  };
   for (const StartMatch& m : starts) {
     auto [eb, ee] = m.trie->entriesOf(*m.node);
+    // 完整拼对的音节（没走简拼、模糊音、补全）全列出来：shi 有七十多个字，只取前几十个会漏掉“诗”
+    const int limit = m.penalty == 0 ? INT_MAX : kTopPerNode;
     int taken = 0;
-    for (const TrieEntry* p = eb; p && p != ee && taken < kTopPerNode; ++p, ++taken) {
+    for (const TrieEntry* p = eb; p && p != ee && taken < limit; ++p, ++taken) {
       std::wstring_view text = m.trie->textOf(*p);
       if (text.empty()) continue;
       int cost = int(p->cost) + m.penalty;
-      std::wstring key(text);
-      key += wchar_t(1);
-      key += wchar_t(m.end + 1);
+      std::wstring key = keyOf(text, m.end);
+      if (m.penalty == 0) exact.insert(key);
       auto it = seen.find(key);
       if (it != seen.end()) {
         if (cost < words[it->second].cost) {
@@ -324,7 +333,8 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
     out->cands.push_back(std::move(sentence));
   }
   for (auto& w : words) {
-    if (out->cands.size() >= kMaxCands) break;
+    // 候选太多时只丢简拼、模糊音这些猜出来的，拼完整的字词一个不丢
+    if (out->cands.size() >= kMaxCands && !exact.count(keyOf(w.text, w.consumed))) continue;
     out->cands.push_back(std::move(w));
   }
   if (opt.englishMixed && input.find('\'') == std::string_view::npos) AddEnglish(d, input, clean, out);

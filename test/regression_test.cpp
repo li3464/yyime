@@ -116,6 +116,15 @@ int wmain(int argc, wchar_t** argv) {
   {
     InputSession extra; Config ec; ec.learn = false; extra.ApplyConfig(ec);
     Check(Keys(extra, "xianzai[") == L"现" && Keys(extra, "xianzai]") == L"在", "pick first / last char of word");
+    for (auto [pinyin, hanzi] : {std::pair{"shi", L"诗"}, std::pair{"ji", L"吉"},
+                                 std::pair{"shijiangzhuaimilanzhuangkuang", L"诗"}}) {
+      Conversion all;
+      ConvertOptions o;
+      ConvertPinyin(Engine::Get().dicts(), pinyin, o, &all);
+      bool found = false;
+      for (auto& c : all.cands) found = found || c.text == hanzi;
+      Check(found, pinyin);
+    }
     Check(Keys(extra, "v123 ") == L"一百二十三", "v-mode lowercase number");
     Keys(extra, "v1234.5");
     bool money = false;
