@@ -13,3 +13,6 @@ data/
 # 编辑器
 .vscode/
 *.log
+
+# 一键安装（setup.bat）下载的编译器
+.tools/

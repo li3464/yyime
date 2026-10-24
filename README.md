@@ -10,6 +10,39 @@
 - **AI（DeepSeek，可换成别的 OpenAI 兼容接口）**：打拼音时按 Tab 让 AI 组句；选中文字按 Ctrl+Alt+空格 润色；没选中时按同一个键续写
 - **皮肤**：10 款 AI 娘角色皮肤与 7 套经典配色，可跟随系统深浅色，也能在设置文件里自己配；横排/竖排
 
+## 小白安装
+
+**1.** 打开 [Releases 下载页](https://github.com/li3464/yyime/releases/latest)，下载 `yyime-版本号.zip`
+
+**2.** 解压，双击里面的 `安装.bat`，弹出管理员确认窗口时点「是」
+
+**3.** 按 Win+空格 切换到「yy输入法」，就能打字了。设置：右键任务栏上的「中/英」→「设置…」
+
+- **以后更新**：下载新版的 zip，再双击 `安装.bat` 就行，你的设置和自造词会保留
+- **卸载**：双击 `卸载.bat`
+- 带反作弊的游戏（比如英雄联盟）里别用，打游戏时切回微软拼音
+
+## 用最新代码安装（克隆）
+
+想用还没发版的最新代码，就自己克隆、编译。只要先装好 [Git](https://git-scm.com/download/win)（一路「下一步」就行）；编译器、词库都由 `setup.bat` 自己下载，不用再装别的。
+
+**1.** 按 Win 键，搜「cmd」，打开「命令提示符」，把下面三行复制进去，按回车：
+
+```
+git clone https://github.com/li3464/yyime.git
+cd yyime
+setup.bat
+```
+
+**2.** 等它跑完。第一次要下载编译器和词库（一共约 260 MB，开着代理的话会自动走代理），再编译；中途断了再运行一次 `setup.bat`，会接着下。最后弹出管理员确认窗口时点「是」。
+
+**3.** 按 Win+空格 切换到「yy输入法」。
+
+- **没装 Git**：在本页点绿色的 **Code** → **Download ZIP**，解压后双击里面的 `setup.bat`
+- **以后更新**：打开 cmd，`cd yyime` 进到文件夹，运行 `git pull`，再运行 `setup.bat`
+- **代理**：开着系统代理（比如 Clash 的「系统代理」）会自动用上；没开系统代理的话手动指定：`setup.bat -Proxy http://127.0.0.1:7890`（端口换成你代理软件的）
+- **卸载**：双击 `dist\yyime\卸载.bat`，你的设置和自造词会保留
+
 ## 本次更新
 
 - 本地整句优化：接入八股文搭配模型，用有界束搜索保留同音路径，并结合已选文字排序。无需联网；设置里可以关闭。模型缺失时自动使用词频组句。
@@ -42,7 +75,9 @@
 
 ## 从源码编译
 
-需要：[llvm-mingw](https://github.com/mstorsjo/llvm-mingw)（默认放在 `C:\Users\17821\tools\llvm-mingw`，放别处就设环境变量 `LLVM_MINGW`）、Python 3。
+最省事的是直接运行 `setup.bat`（见上面「小白安装」），它会把 llvm-mingw 下到 `.tools\` 里并按下面的步骤做完。想手动编译的话：
+
+需要：[llvm-mingw](https://github.com/mstorsjo/llvm-mingw)（设环境变量 `LLVM_MINGW` 指向它的文件夹）、Python 3（llvm-mingw 自带的 `python\bin\python3.exe` 也行）。
 
 ```
 powershell -NoProfile -ExecutionPolicy Bypass -File tools\fetch_data.ps1     # 下载并编译词库到 data\
