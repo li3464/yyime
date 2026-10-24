@@ -1040,7 +1040,7 @@ void TextService::ShowMenu(POINT pt, HWND menuOwner) {
   AppendMenuW(menu, MF_STRING, kMenuOpenPhrases, L"编辑自定义短语…");
   AppendMenuW(menu, MF_STRING, kMenuOpenDir, L"打开用户文件夹");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-  AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"yy输入法 1.0");
+  AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"yy输入法 1.1");
   HWND owner = menuOwner ? menuOwner : (contextWnd_ ? GetAncestor(contextWnd_, GA_ROOT) : nullptr);
   if (!owner || !IsWindow(owner)) { DestroyMenu(menu); return; }
   SetForegroundWindow(owner);
