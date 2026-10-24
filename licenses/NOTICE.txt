@@ -17,3 +17,7 @@ https://github.com/lotem/rime-octagram-data
 https://github.com/lotem/librime-octagram
 Copyright (c) 2014, RIME Developers
 参见 librime-octagram-LICENSE.txt。
+
+AI 娘皮肤插画（themes\*.png）与输入法图标的角色形象：B 站画师 ZipZipPipe
+https://space.bilibili.com/4168597
+已获作者授权在 yy输入法 中使用。图片权利归原作者，未经作者同意请勿单独拿去他用。

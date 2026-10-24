@@ -66,6 +66,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1      # �
 - 拼音、英文、emoji：[雾凇拼音 rime-ice](https://github.com/iDvel/rime-ice)（GPL-3.0）
 - 五笔86：[rime-wubi](https://github.com/rime/rime-wubi)（LGPL-3.0）
 
+## 致谢
+
+AI 娘皮肤和输入法图标里的角色形象来自 B 站画师 **ZipZipPipe**（[B 站主页](https://space.bilibili.com/4168597)），2026 年 10 月获作者授权使用，感谢 ZipZipPipe 的授权！插画按原作形象用 AI 生成，MiniMax、Kimi 两款为补充设计。这些图片的权利归原作者，未经作者同意请勿单独拿去他用。
+
 ## 注意
 
 - 输入法会被加载进你打字的每个程序里。带反作弊的游戏（比如英雄联盟）里别用，打游戏时切回微软拼音。

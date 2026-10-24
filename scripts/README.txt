@@ -59,3 +59,7 @@
   拼音、英文、emoji：雾凇拼音 rime-ice（GPL-3.0）https://github.com/iDvel/rime-ice
   五笔86：rime-wubi（LGPL-3.0）https://github.com/rime/rime-wubi
   本地语言模型与算法参考：见 licenses\NOTICE.txt 和附带许可证
+
+【致谢】
+  AI 娘皮肤和图标的角色形象来自 B 站画师 ZipZipPipe，已获作者授权使用，感谢！
+  B 站主页：https://space.bilibili.com/4168597

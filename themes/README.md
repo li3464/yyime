@@ -1,6 +1,6 @@
 # AI 娘皮肤
 
-十款非官方同人角色插画，使用内置 image_gen 工具生成，按用户提供的七人参考图调整为清爽少女风。参考用户所指的 ZipZipPipe 社区角色形象；MiniMax、Kimi 为本套补充设计。Zcode 已按作者的蒙眼白狐工程师形象修正：蓝白眼罩、狐耳、工程围裙与图纸卷。
+十款非官方同人角色插画，使用内置 image_gen 工具生成，按用户提供的七人参考图调整为清爽少女风。角色形象来自 B 站画师 ZipZipPipe（https://space.bilibili.com/4168597），2026 年 10 月已获作者授权使用，感谢 ZipZipPipe！MiniMax、Kimi 为本套补充设计。图片权利归原作者，未经作者同意请勿单独拿去他用。Zcode 已按作者的蒙眼白狐工程师形象修正：蓝白眼罩、狐耳、工程围裙与图纸卷。
 
 Zcode 原设定来源：https://www.bilibili.com/opus/1240327263126290448 （ZipZipPipe）。
 
