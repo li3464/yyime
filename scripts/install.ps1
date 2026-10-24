@@ -30,17 +30,45 @@ function Say([string]$m) {
     Add-Content -Path $LogFile -Value $m -Encoding UTF8
 }
 
-# 保留旧版本；正在使用的 DLL 改名后，重新启动的应用会加载新版。
+Add-Type -Namespace YY -Name Native -MemberDefinition @'
+[DllImport("input.dll", CharSet = CharSet.Unicode)]
+public static extern bool InstallLayoutOrTip(string psz, uint dwFlags);
+[DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+public static extern bool MoveFileEx(string existing, string replacement, int flags);
+'@
+
+# 删掉一个文件；正被别的程序占着就登记成重启后删除
+function Remove-OrLater([string]$path) {
+    try { Remove-Item -LiteralPath $path -Force -ErrorAction Stop }
+    catch { [YY.Native]::MoveFileEx($path, $null, 4) | Out-Null }  # 4 = 重启后删除
+}
+
+# 能直接覆盖就覆盖。正被打字的程序占着的（DLL、词库）没法覆盖：改名挪开再放新的，
+# 程序重新打开就用上新版；挪开的旧文件重启后自动删掉，不会越攒越多
 function Copy-Safe([string]$src, [string]$dst) {
     if (Test-Path $dst) {
-        $stamp = Get-Date -Format "yyyyMMddHHmmssfff"
-        Rename-Item -LiteralPath $dst -NewName ((Split-Path $dst -Leaf) + ".old" + $stamp) -ErrorAction Stop
+        try {
+            Copy-Item -LiteralPath $src -Destination $dst -Force -ErrorAction Stop
+            return
+        } catch { }
+        $old = $dst + ".old" + (Get-Date -Format "yyyyMMddHHmmssfff")
+        Rename-Item -LiteralPath $dst -NewName (Split-Path $old -Leaf) -ErrorAction Stop
+        Remove-OrLater $old
     }
     Copy-Item -LiteralPath $src -Destination $dst -Force
 }
 
 try {
     Say "== yy输入法 安装 $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') =="
+    # 以前的版本挪开的旧文件（*.oldXXXX）：没人用了就删，还在用的等重启后删
+    if (Test-Path $Target) {
+        $leftovers = @(Get-ChildItem -LiteralPath $Target -Recurse -File -Filter "*.old*" -ErrorAction SilentlyContinue)
+        if ($leftovers.Count -gt 0) {
+            $mb = ($leftovers | Measure-Object Length -Sum).Sum / 1MB
+            $leftovers | ForEach-Object { Remove-OrLater $_.FullName }
+            Say ("清理了以前安装留下的 {0} 个旧文件（{1:N0} MB，正被占用的重启后删）" -f $leftovers.Count, $mb)
+        }
+    }
     foreach ($f in @("yyime64.dll", "yyime32.dll", "yyime-settings.exe", "data\pinyin.bin", "data\wubi86.bin", "data\english.bin", "data\zh-hans-t-essay-bgw.gram")) {
         if (-not (Test-Path (Join-Path $Source $f))) { throw "安装包里缺少文件：$f" }
     }
@@ -72,11 +100,7 @@ try {
     if ($r32.ExitCode -ne 0) { throw "注册 32 位组件失败（代码 $($r32.ExitCode)）" }
     Say "已注册 64 位和 32 位组件"
 
-    Add-Type -Namespace YY -Name Input -MemberDefinition @'
-[DllImport("input.dll", CharSet = CharSet.Unicode)]
-public static extern bool InstallLayoutOrTip(string psz, uint dwFlags);
-'@
-    if ([YY.Input]::InstallLayoutOrTip("0804:$CLSID$ProfileGuid", 0)) {
+    if ([YY.Native]::InstallLayoutOrTip("0804:$CLSID$ProfileGuid", 0)) {
         Say "已加入「中文(简体)」的输入法列表"
     } else {
         Say "没能自动加进输入法列表，可以在 设置 → 时间和语言 → 语言和区域 → 中文 → 语言选项 → 添加键盘 里手动加"
