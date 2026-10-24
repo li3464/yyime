@@ -58,6 +58,7 @@ enum class EdgeKind : uint8_t {
   Abbr,    // 只打了声母（简拼）
   Prefix,  // 最后一个音节没打完
   Sep,     // 用户打的隔音符 '
+  Correct, // 打错了、纠正过来的音节（nihoa 里的 hoa → hao）
 };
 
 struct LatticeEdge {
@@ -116,8 +117,14 @@ class ShuangpinScheme {
 constexpr int kAbbrPenalty = 3000;
 constexpr int kPrefixPenalty = 1500;
 constexpr int kFuzzyPenalty = 800;
+// 纠错的惩罚要够大：正确的拼音不能被“纠”成别的（6000 条正确拼音里只改了 4 条随便拼凑的句子），
+// 又要比打错后乱切出来的代价小（随机造的错拼 59% 第一个就纠对）。调参见 git 记录
+constexpr int kTypoPenalty = 8000;   // 纠错：两个字母打反、ign 写成 ing 这类
+constexpr int kEditPenalty = 10000;  // 纠错：多打、漏打、按到旁边的键
 
-void BuildPinyinLattice(std::string_view input, const SyllableTable& table, const FuzzyRules& fuzzy, Lattice* lat);
+// correct：全拼纠错，打错的地方加一条纠正过的边（带惩罚，正常的切法照样在）
+void BuildPinyinLattice(std::string_view input, const SyllableTable& table, const FuzzyRules& fuzzy, Lattice* lat,
+                        bool correct = false);
 void BuildShuangpinLattice(std::string_view input, const ShuangpinScheme& scheme, const SyllableTable& table,
                            Lattice* lat);
 

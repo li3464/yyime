@@ -43,6 +43,7 @@ struct StartMatch {
   const TrieView* trie;
   const TrieNode* node;
   std::vector<uint16_t> syls;
+  bool corrected = false;  // 路上用了纠错的边
 };
 
 // 从 pos 出发沿音节图往前走，同时在前缀树里往下走，每走到一个有词的节点就回调。
@@ -66,7 +67,7 @@ void Walk(const TrieView& trie, const Lattice& lat, int pos, const TrieNode& nod
       path.syls.pop_back();
       path.edges.pop_back();
     };
-    if (e.kind == EdgeKind::Full && e.syls.count() <= 4) {
+    if ((e.kind == EdgeKind::Full || e.kind == EdgeKind::Correct) && e.syls.count() <= 4) {
       e.syls.forEach([&](int id) {
         if (const TrieNode* c = trie.child(node, uint16_t(id))) visit(*c);
       });
@@ -84,9 +85,18 @@ bool IsPinyinInput(std::string_view s, bool semicolon) {
   return true;
 }
 
+// 整串正好是个英文单词（hello、wifi）：多半在打英文，不去纠拼音。词表按小写排好，完全一样的排在最前面
+bool IsEnglishWord(const Dictionaries& d, std::string_view input) {
+  if (!d.english.loaded() || input.size() < 2) return false;
+  auto [b, e] = d.english.PrefixRange(input);
+  for (int k = 0; b && b != e && k < 4; ++b, ++k)
+    if (b->textLen == input.size()) return true;
+  return false;
+}
+
 }  // namespace
 
-void AddEnglish(const Dictionaries& d, std::string_view input, bool clean, Conversion* out) {
+void AddEnglish(const Dictionaries& d, std::string_view input, bool clean, Conversion* out, bool corrected) {
   if (!d.english.loaded() || input.size() < 2 || input.size() > 30) return;
   std::string lower;
   for (char c : input) {
@@ -104,7 +114,7 @@ void AddEnglish(const Dictionaries& d, std::string_view input, bool clean, Conve
       found.push_back(std::move(c));
     }
   }
-  if (!clean && input.size() >= 3) {
+  if (!clean && !corrected && input.size() >= 3) {
     std::vector<const EnglishEntry*> longer;
     for (auto p = b; p != e && longer.size() < 2000; ++p)
       if (p->textLen > lower.size()) longer.push_back(p);
@@ -151,7 +161,8 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
   Lattice lat;
   static const FuzzyRules kNoFuzzy;
   if (shuangpin) BuildShuangpinLattice(input, *d.Shuangpin(opt.scheme), d.table, &lat);
-  else BuildPinyinLattice(input, d.table, opt.fuzzy ? *opt.fuzzy : kNoFuzzy, &lat);
+  else BuildPinyinLattice(input, d.table, opt.fuzzy ? *opt.fuzzy : kNoFuzzy, &lat,
+                          opt.correction && !(opt.englishMixed && IsEnglishWord(d, input)));
 
   TrieView sys = d.pinyin.trie();
   TrieView usr = opt.user ? opt.user->view() : TrieView{};
@@ -191,7 +202,11 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
           });
           if (choices.size() > size_t(grammar ? 8 : 1)) choices.resize(grammar ? 8 : 1);
         }
-        if (s == 0) starts.push_back(StartMatch{end, pen, t, &node, p.syls});
+        if (s == 0) {
+          bool corrected = false;
+          for (int ei : p.edges) corrected = corrected || lat.edges[size_t(ei)].kind == EdgeKind::Correct;
+          starts.push_back(StartMatch{end, pen, t, &node, p.syls, corrected});
+        }
       };
       Walk(*t, lat, s, *t->root(), 0, path, onMatch);
     }
@@ -204,7 +219,7 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
     std::u32string context;
     std::vector<uint16_t> syls;
     std::string display;
-    bool clean = true, learnable = true;
+    bool clean = true, learnable = true, corrected = false;
     int lastKind = -1;
   };
   const size_t width = grammar ? 10 : 1;
@@ -253,6 +268,7 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
             if (shuangpin && edge.kind == EdgeKind::Full) next.display += d.table.name(bw.syls[k]);
             else next.display += edge.spelling;
             if (edge.kind == EdgeKind::Abbr && edge.to != n) next.clean = false;
+            if (edge.kind == EdgeKind::Correct) next.clean = false, next.corrected = true;
           }
           next.lastKind = 1;
           push(end, std::move(next));
@@ -279,6 +295,7 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
   out->display = winning.display;
   const bool clean = winning.clean;
   out->clean = clean;
+  out->corrected = winning.corrected;
 
   // ---- 从头开始的词：覆盖得越长越靠前，同样长的按代价
   std::vector<Candidate> words;
@@ -291,6 +308,8 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
     return key;
   };
   for (const StartMatch& m : starts) {
+    // 纠错的词只在整句也是纠错出来的时候才列：拼音本来就对（nihao）就别冒出“鸟”；半截的猜测也不列
+    if (m.corrected && (m.end != n || !winning.corrected)) continue;
     auto [eb, ee] = m.trie->entriesOf(*m.node);
     // 完整拼对的音节（没走简拼、模糊音、补全）全列出来：shi 有七十多个字，只取前几十个会漏掉“诗”
     const int limit = m.penalty == 0 ? INT_MAX : kTopPerNode;
@@ -339,7 +358,7 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
     if (out->cands.size() >= kMaxCands && !exact.count(keyOf(w.text, w.consumed))) continue;
     out->cands.push_back(std::move(w));
   }
-  if (opt.englishMixed && input.find('\'') == std::string_view::npos) AddEnglish(d, input, clean, out);
+  if (opt.englishMixed && input.find('\'') == std::string_view::npos) AddEnglish(d, input, clean, out, out->corrected);
 }
 
 void ConvertWubi(const Dictionaries& d, std::string_view input, Conversion* out) {

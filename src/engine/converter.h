@@ -36,6 +36,7 @@ struct Conversion {
   std::vector<Candidate> cands;
   std::string display;  // 预编辑区显示的样子，比如 ni'hao
   bool clean = false;   // 整串都切成了完整音节（只允许最后一个是简拼）
+  bool corrected = false;  // 第一个候选用了纠错（预编辑里显示的是纠正后的拼音）
 };
 
 struct ConvertOptions {
@@ -45,6 +46,7 @@ struct ConvertOptions {
   const UserTrie* user = nullptr;
   bool useGrammar = true;
   bool rareChars = true;      // 词库里大字表补进来的生僻字（代价 ≥ kRareCost）出不出
+  bool correction = true;     // 全拼纠错：nihoa 也能打出“你好”
   std::wstring_view context;  // 前面已经选好的字，组句时当上文
 };
 
@@ -54,6 +56,7 @@ constexpr int kRareCost = 60000;
 void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertOptions& opt, Conversion* out);
 void ConvertWubi(const Dictionaries& d, std::string_view input, Conversion* out);
 // 把英文单词插进候选（拼音切得干净时放第 2 个，不然放第 1 个）
-void AddEnglish(const Dictionaries& d, std::string_view input, bool clean, Conversion* out);
+// corrected：拼音是纠错后才通的，就不再补“以它开头的长单词”（hoa 别给出 hoard）
+void AddEnglish(const Dictionaries& d, std::string_view input, bool clean, Conversion* out, bool corrected = false);
 
 }  // namespace yy

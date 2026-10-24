@@ -112,6 +112,7 @@ class InputSession {
   bool sentenceModel_ = true;
   bool emoji_ = true;
   bool rare_ = true;
+  bool correction_ = true;
   std::wstring hint_;  // v 模式之类的提示，显示在候选框顶上那行右边
   KeyChord composeKey_ = ParseKeyChord(L"Tab");
   FuzzyRules fuzzy_;

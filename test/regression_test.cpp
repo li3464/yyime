@@ -164,6 +164,22 @@ int wmain(int argc, wchar_t** argv) {
     Check(items.empty() || items[0]->text != L"焱", "rare switch off disables u-mode");
     extra.Clear();
     ec.rareChars = true;
+    auto first = [&](const char* in, bool correct) {
+      Conversion conv;
+      ConvertOptions o;
+      o.correction = correct;
+      ConvertPinyin(Engine::Get().dicts(), in, o, &conv);
+      return conv.cands.empty() ? std::wstring() : conv.cands[0].text;
+    };
+    Check(first("nihoa", true) == L"你好" && first("zhognguo", true) == L"中国" && first("xaing", true) == L"想" &&
+          first("pengyuo", true) == L"朋友" && first("jintain", true) == L"今天" && first("gognzuo", true) == L"工作",
+          "pinyin typo correction");
+    Check(first("nihao", true) == L"你好" && first("zhongg", true) == L"中国" && first("yysrf", true) == L"语音输入法" &&
+          first("hello", true) == L"hello" && first("xianzai", true) == L"现在",
+          "correction leaves valid input alone");
+    extra.ApplyConfig(ec);
+    Check(Keys(extra, "nihoa ") == L"你好", "typo corrected end to end");
+    Check(first("nihoa", false) != L"你好", "correction off");
     ec.emoji = false; extra.ApplyConfig(ec); Keys(extra, "kaixin");
     items = extra.PageView().items;
     Check(items.size() > 1 && items[1]->text != L"😄", "emoji switch off");

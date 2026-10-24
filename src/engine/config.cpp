@@ -190,6 +190,7 @@ bool LoadConfig(const std::wstring& path, Config* cfg) {
       else if (key == "sentence_model") cfg->sentenceModel = ParseBool(value, cfg->sentenceModel);
       else if (key == "emoji") cfg->emoji = ParseBool(value, cfg->emoji);
       else if (key == "rare_chars") cfg->rareChars = ParseBool(value, cfg->rareChars);
+      else if (key == "correction") cfg->correction = ParseBool(value, cfg->correction);
     } else if (section == "ui") {
       if (key == "theme") cfg->themeName = Utf8ToWide(Lower(value));
       else if (key == "layout") cfg->vertical = Lower(value) == "vertical" || value == "竖排";

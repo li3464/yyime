@@ -72,13 +72,14 @@ const FuzzyPair kFuzzy[] = {{L"z", L"zh", 66},    {L"c", L"ch", 66},    {L"s", L
 constexpr int kFuzzyCount = int(sizeof(kFuzzy) / sizeof(kFuzzy[0]));
 
 enum Sw {
-  SwSentence, SwLearn, SwEnglish, SwPunct, SwShift, SwStartCn, SwDynamic, SwEmoji, SwRare, SwWubi,
+  SwSentence, SwLearn, SwEnglish, SwCorrect, SwPunct, SwShift, SwStartCn, SwDynamic, SwEmoji, SwRare, SwWubi,
   SwPreedit, SwArt, SwAi, SwCount
 };
 struct SwitchRow { const wchar_t* title; const wchar_t* desc; };
 const SwitchRow kHabitRows[] = {
     {L"本地整句优化", L"用语言模型挑更通顺的整句，不联网"}, {L"记住我选过的词", L"常用的词会自动往前排"},
-    {L"中英混打", L"直接打英文单词也有候选"},              {L"中文标点", L"中文状态下打出 ，。？！"},
+    {L"中英混打", L"直接打英文单词也有候选"},              {L"拼音纠错", L"打反、漏打也认得出，nihoa → 你好"},
+    {L"中文标点", L"中文状态下打出 ，。？！"},
     {L"单按 Shift 切换中英", L"打到一半按，字母原样上屏"},  {L"默认中文模式", L"切到 yy 输入法时先用中文"},
     {L"日期和时间", L"rq 日期 · sj 时间 · xq 星期"},       {L"Emoji 表情", L"打“开心”时候选里跟着出表情"},
     {L"生僻字", L"u 开头按偏旁或笔画找字，标出读音"},     {L"五笔四码自动上屏", L"只剩一个候选时直接上屏"}};
@@ -898,7 +899,8 @@ void LoadState() {
   fontFace = config.fontFace.empty() ? L"Microsoft YaHei UI" : config.fontFace;
   vertical = config.vertical;
   themeName = config.themeName.empty() ? L"auto" : config.themeName;
-  bool values[SwCount] = {config.sentenceModel,  config.learn,         config.englishMixed,   config.fullwidthPunct,
+  bool values[SwCount] = {config.sentenceModel,  config.learn,         config.englishMixed,   config.correction,
+                          config.fullwidthPunct,
                           config.shiftToggle,    config.startChinese,  config.dynamicPhrases, config.emoji,
                           config.rareChars,      config.wubiAutoCommit,
                           config.preeditInWindow, config.characterArt, config.aiEnabled};
@@ -953,12 +955,12 @@ void BuildPages() {
   AddCard(0, rx, kTop, rw, kBottom - kTop, L"打字习惯", L"");
   constexpr int kHabitCount = int(sizeof(kHabitRows) / sizeof(kHabitRows[0]));
   for (int i = 0; i < kHabitCount; ++i) {
-    int ry = kTop + 56 + i * 47;
-    AddText(0, rx + 20, ry + 4, rw - 100, 20, kHabitRows[i].title, 14, kText);
-    AddText(0, rx + 20, ry + 24, rw - 100, 18, kHabitRows[i].desc, 12, kSub);
-    HWND swCtl = AddCtl(IdSwitch + i, K::Switch, 0, rx + rw - 64, ry + 11, 44, 24, kWhite, L"", i);
+    int ry = kTop + 52 + i * 43;
+    AddText(0, rx + 20, ry + 3, rw - 100, 20, kHabitRows[i].title, 14, kText);
+    AddText(0, rx + 20, ry + 22, rw - 100, 18, kHabitRows[i].desc, 12, kSub);
+    HWND swCtl = AddCtl(IdSwitch + i, K::Switch, 0, rx + rw - 64, ry + 9, 44, 24, kWhite, L"", i);
     if (i == SwRare) Tip(swCtl, kRareHelp);
-    if (i < kHabitCount - 1) visuals.push_back({0, V::Divider, RectF(F(rx + 20), F(ry + 47), F(rw - 40), 0)});
+    if (i < kHabitCount - 1) visuals.push_back({0, V::Divider, RectF(F(rx + 20), F(ry + 43), F(rw - 40), 0)});
   }
 
   // ---- AI 娘皮肤
@@ -1120,6 +1122,7 @@ bool Save() {
   value("general", "page_size", std::to_wstring(pageSize));
   flag("general", "sentence_model", SwSentence);
   flag("general", "english_mixed", SwEnglish);
+  flag("general", "correction", SwCorrect);
   flag("general", "shift_toggle", SwShift);
   flag("general", "fullwidth_punct", SwPunct);
   flag("general", "learn", SwLearn);

@@ -52,6 +52,7 @@ void InputSession::ApplyConfig(const Config& c) {
   sentenceModel_ = c.sentenceModel;
   emoji_ = c.emoji;
   rare_ = c.rareChars;
+  correction_ = c.correction;
   composeKey_ = ParseKeyChord(c.aiComposeKey);
   fuzzy_ = FuzzyRules::Parse(c.fuzzy);
 }
@@ -427,6 +428,7 @@ void InputSession::Refresh() {
     opt.user = user.get();
     opt.useGrammar = sentenceModel_;
     opt.rareChars = rare_;
+    opt.correction = correction_;
     std::wstring selectedContext = SelectedText();
     opt.context = selectedContext;
     ConvertPinyin(d, rest, opt, &conv_);

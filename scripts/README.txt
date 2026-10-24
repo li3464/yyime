@@ -16,6 +16,8 @@
           v 加符号码出特殊符号：fh 常用 jt 箭头 sx 数学 dw 单位 xl 希腊 xh 序号
           bd 标点 jh 几何 bq 括号 py 带调拼音；只打 v 会提示这些
   emoji：打 kaixin、haha、mao 时候选里跟着 😄 🐱，设置里可以关
+  拼音纠错：字母打反、多打、漏打、按到旁边的键也认得出
+          nihoa → 你好，zhognguo → 中国，pengyuo → 朋友；设置里可以关
   生僻字：不认识的字用 u 开头来找，候选旁边标着读音
           拆字：u + 各部分的拼音，uhuohuohuo → 焱，umumumu → 森，unvzi → 好
           笔画：u + 笔画，h 横 s 竖 p 撇 n 点(捺) z 折，uhh → 二

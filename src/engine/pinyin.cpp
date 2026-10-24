@@ -1,5 +1,8 @@
 #include "pinyin.h"
 
+#include <algorithm>
+#include <cstring>
+
 #include "dict.h"
 #include "util.h"
 
@@ -163,7 +166,112 @@ static std::string NormalizeSpelling(std::string_view s) {
   return std::string(s);
 }
 
-void BuildPinyinLattice(std::string_view input, const SyllableTable& table, const FuzzyRules& fuzzy, Lattice* lat) {
+// ---------------------------------------------------------------- 纠错
+
+// 键盘上挨着的键（按错键时用）
+static const char* KeyNeighbors(char c) {
+  static const char* const kNear[26] = {
+      "qwsz",   "vngh",   "xvdf",   "sferxc", "wrsd", "dgrtcv", "fhtyvb", "gjyubn", "uojk",
+      "hkuinm", "jliom",  "kop",    "njk",    "bmhj", "ipkl",   "ol",     "wa",     "etdf",
+      "adwezx", "ryfg",   "yihj",   "cbfg",   "qeas", "zcsd",   "tugh",   "asx"};
+  return c >= 'a' && c <= 'z' ? kNear[c - 'a'] : "";
+}
+
+// s 能不能整个切成两个以上、每个至少两个字母的完整音节
+static bool SplitsIntoSyllables(std::string_view s, const SyllableTable& table) {
+  const size_t n = s.size();
+  std::vector<int> parts(n + 1, -1);  // 前 k 个字母最少能切成几个音节，-1 表示切不开
+  parts[0] = 0;
+  for (size_t end = 2; end <= n; ++end)
+    for (size_t len = 2; len <= 6 && len <= end; ++len)
+      if (parts[end - len] >= 0 && table.Find(NormalizeSpelling(s.substr(end - len, len))) >= 0)
+        parts[end] = parts[end] < 0 ? parts[end - len] + 1 : std::min(parts[end], parts[end - len] + 1);
+  return parts[n] >= 2;
+}
+
+// input[i, i+len) 不是合法音节时，猜它本来想打哪个音节，每个猜法加一条 Correct 边。
+// 只改一处：打反、写错韵母、多打、漏打、按到旁边的键。
+static void AddCorrections(std::string_view input, int i, int run, const SyllableTable& table, Lattice* lat) {
+  const int n = int(input.size());
+  for (int len = 2; len <= run && len <= 7; ++len) {
+    std::string sub(input.substr(size_t(i), size_t(len)));
+    if (table.Find(NormalizeSpelling(sub)) >= 0 || SyllableTable::IsInitial(sub)) continue;  // 本来就对，或者是简拼
+    if (sub.find_first_of("aeiouv") == std::string::npos) continue;  // 没有元音的是简拼（yysrf），不当打错
+    const bool atEnd = i + len == n;
+    // 本来就能拆成几个完整音节（nihao = ni + hao）不当打错；单个 a/o/e 不算（yuo 还是要纠成 you）
+    if (SplitsIntoSyllables(sub, table)) continue;
+    // 结尾是“完整音节 + 一个声母”（zhongg、tain）：可能是刚开始打下一个字，
+    // 最后一个字母不动，也不纠成去掉它的样子（zhongg 别纠成 zhong），别处打反的照样纠（tain → tian）
+    const std::string head = sub.substr(0, size_t(len - 1));
+    const bool keepLast = atEnd && IsConsonant(sub.back()) && table.Find(NormalizeSpelling(head)) >= 0;
+    std::vector<std::pair<int, int>> found;  // 音节, 惩罚
+    auto tryFix = [&](const std::string& s, int penalty) {
+      if (s.empty() || s.size() > 6 || (keepLast && s == head)) return;
+      int id = table.Find(NormalizeSpelling(s));
+      if (id < 0) return;
+      for (auto& f : found)
+        if (f.first == id) {
+          f.second = std::min(f.second, penalty);
+          return;
+        }
+      found.push_back({id, penalty});
+    };
+    // 1. 相邻两个字母打反：hoa → hao、zhogn → zhong
+    for (int k = 0; k + 1 < len; ++k) {
+      if (keepLast && k + 1 == len - 1) continue;
+      std::string s = sub;
+      std::swap(s[size_t(k)], s[size_t(k + 1)]);
+      tryFix(s, kTypoPenalty);
+    }
+    // 2. 常见的韵母写错：ign / img → ing，uei → ui，iou → iu，uen → un，mg → ng
+    static const char* const kRules[][2] = {{"ign", "ing"}, {"img", "ing"}, {"uei", "ui"},
+                                            {"iou", "iu"},  {"uen", "un"},  {"mg", "ng"}};
+    for (auto& r : kRules) {
+      size_t p = sub.find(r[0]);
+      if (p != std::string::npos) tryFix(sub.substr(0, p) + r[1] + sub.substr(p + strlen(r[0])), kTypoPenalty);
+    }
+    // 3. 多打了一个字母：hhao → hao
+    if (len >= 3) {
+      for (int k = 0; k < len; ++k) {
+        if (keepLast && k == len - 1) continue;
+        std::string s = sub;
+        s.erase(size_t(k), 1);
+        tryFix(s, kEditPenalty);
+      }
+    }
+    // 4. 漏打了一个字母：zhon → zhong（结尾那段没打完是常事，交给补全，不在这里猜）
+    if (!atEnd) {
+      for (int k = 0; k <= len; ++k)
+        for (char c = 'a'; c <= 'z'; ++c) {
+          std::string s = sub;
+          s.insert(size_t(k), 1, c);
+          tryFix(s, kEditPenalty);
+        }
+    }
+    // 5. 按到旁边的键：kau → kai（u 挨着 i）
+    for (int k = 0; k < len; ++k) {
+      if (keepLast && k == len - 1) continue;
+      for (const char* c = KeyNeighbors(sub[size_t(k)]); *c; ++c) {
+        std::string s = sub;
+        s[size_t(k)] = *c;
+        tryFix(s, kEditPenalty);
+      }
+    }
+    for (auto [id, penalty] : found) {
+      LatticeEdge e;
+      e.from = i;
+      e.to = i + len;
+      e.kind = EdgeKind::Correct;
+      e.penalty = penalty;
+      e.syls.set(id);
+      e.spelling = std::string(table.name(id));  // 预编辑里显示纠正后的拼音
+      lat->Add(std::move(e));
+    }
+  }
+}
+
+void BuildPinyinLattice(std::string_view input, const SyllableTable& table, const FuzzyRules& fuzzy, Lattice* lat,
+                        bool correct) {
   const int n = int(input.size());
   lat->Reset(n);
   std::vector<int> variants;
@@ -207,6 +315,7 @@ void BuildPinyinLattice(std::string_view input, const SyllableTable& table, cons
       }
       longestFull = len;
     }
+    if (correct) AddCorrections(input, i, run, table, lat);
     // 简拼：只在这里没有更长的完整音节时才允许（不然 zhong 会被拆成 z+h+...）
     bool twoLetterInitial = run >= 2 && SyllableTable::IsInitial(input.substr(size_t(i), 2));
     for (int len = 1; len <= 2 && len <= run; ++len) {
