@@ -5,7 +5,7 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 $bin = if ($env:LLVM_MINGW) { "$env:LLVM_MINGW\bin" } else { "C:\Users\17821\tools\llvm-mingw\bin" }
 if (-not $NoBuild) {
-    $engine = @("util", "dict", "pinyin", "userdict", "config", "default_config", "phrases", "grammar", "converter", "engine", "session") |
+    $engine = @("util", "dict", "pinyin", "userdict", "config", "default_config", "phrases", "grammar", "converter", "engine", "extras", "session") |
         ForEach-Object { "$root\src\engine\$_.cpp" }
     & "$bin\x86_64-w64-mingw32-windres.exe" -I "$root\src" "$root\src\ui\settings.rc" -O coff -o "$root\build\settings.res.o"
     if ($LASTEXITCODE -ne 0) { throw "windres failed" }

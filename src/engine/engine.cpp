@@ -125,4 +125,29 @@ std::string Engine::WubiCodeOf(std::wstring_view text) {
   return out;
 }
 
+const std::vector<std::wstring>* Engine::EmojiFor(const std::wstring& word) {
+  std::call_once(emojiOnce_, [this] {
+    std::string data;
+    if (!ReadTextFile(dataDir_ + L"\\emoji.txt", &data)) return;
+    size_t pos = 0;
+    while (pos < data.size()) {
+      size_t nl = data.find('\n', pos);
+      if (nl == std::string::npos) nl = data.size();
+      std::wstring line = Utf8ToWide(std::string_view(data).substr(pos, nl - pos));
+      pos = nl + 1;
+      size_t tab = line.find(L'\t');
+      if (tab == std::wstring::npos || tab == 0) continue;
+      auto& list = emoji_[line.substr(0, tab)];
+      for (size_t i = tab + 1; i < line.size();) {
+        size_t sp = line.find(L' ', i);
+        if (sp == std::wstring::npos) sp = line.size();
+        if (sp > i) list.push_back(line.substr(i, sp - i));
+        i = sp + 1;
+      }
+    }
+  });
+  auto it = emoji_.find(word);
+  return it == emoji_.end() ? nullptr : &it->second;
+}
+
 }  // namespace yy

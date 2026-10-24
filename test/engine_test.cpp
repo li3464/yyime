@@ -145,6 +145,18 @@ int wmain(int argc, wchar_t** argv) {
     s.Clear();
     s.SetChinese(true);
   }
+  Out("--- 以词定字、v 模式、emoji\n");
+  for (const char* sc : {"xianzai[", "xianzai]", "zhongguo]", "v123{sp}", "v1234.5{down}{down}{sp}", "v100000000",
+                         "v1+2*3{sp}", "v(1+2)*3{down}{sp}", "v2^10{sp}", "v1+", "v7/0", "vjt2", "vfh{sp}", "vsx3",
+                         "v", "very{sp}", "kaixin", "kaixin3", "haha"}) {
+    Type(s, sc);
+    if (s.composing() && !s.PageView().status.empty()) {
+      Out("    提示：");
+      Out(s.PageView().status);
+      Out("\n");
+    }
+    s.Clear();
+  }
   Out("--- 分段选词（xianshi 先选 西，再选 安市）\n");
   Type(s, "xianshi");
   s.Clear();

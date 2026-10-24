@@ -70,13 +70,14 @@ const FuzzyPair kFuzzy[] = {{L"z", L"zh", 66},    {L"c", L"ch", 66},    {L"s", L
                             {L"in", L"ing", 80},  {L"ian", L"iang", 98}, {L"uan", L"uang", 102}};
 constexpr int kFuzzyCount = int(sizeof(kFuzzy) / sizeof(kFuzzy[0]));
 
-enum Sw { SwSentence, SwLearn, SwEnglish, SwPunct, SwShift, SwStartCn, SwDynamic, SwWubi, SwPreedit, SwArt, SwAi, SwCount };
+enum Sw { SwSentence, SwLearn, SwEnglish, SwPunct, SwShift, SwStartCn, SwDynamic, SwEmoji, SwWubi, SwPreedit, SwArt, SwAi, SwCount };
 struct SwitchRow { const wchar_t* title; const wchar_t* desc; };
 const SwitchRow kHabitRows[] = {
     {L"本地整句优化", L"用语言模型挑更通顺的整句，不联网"}, {L"记住我选过的词", L"常用的词会自动往前排"},
     {L"中英混打", L"直接打英文单词也有候选"},              {L"中文标点", L"中文状态下打出 ，。？！"},
     {L"单按 Shift 切换中英", L"打到一半按，字母原样上屏"},  {L"默认中文模式", L"切到 yy 输入法时先用中文"},
-    {L"日期和时间", L"rq 日期 · sj 时间 · xq 星期"},       {L"五笔四码自动上屏", L"只剩一个候选时直接上屏"}};
+    {L"日期和时间", L"rq 日期 · sj 时间 · xq 星期"},       {L"Emoji 表情", L"打“开心”时候选里跟着出表情"},
+    {L"五笔四码自动上屏", L"只剩一个候选时直接上屏"}};
 
 struct KeyRow { const wchar_t* icon; const wchar_t* title; const wchar_t* desc; bool compose; };
 const KeyRow kKeyRows[] = {{L"", L"AI 整句", L"打拼音时按，AI 帮你组句", true},
@@ -87,6 +88,7 @@ const KeyRow kKeyRows[] = {{L"", L"AI 整句", L"打拼音时按，AI 帮你�
 constexpr int kKeyCount = 5;
 const wchar_t* kFixedKeys[][2] = {{L"空格", L"选第一个候选"}, {L"1–9", L"选对应的候选"},   {L"- =", L"上一页 / 下一页"},
                                   {L"↑ ↓", L"移动高亮"},     {L"回车", L"字母原样上屏"},   {L"Esc", L"取消这次输入"},
+                                  {L"[ ]", L"取词的首字 / 末字"}, {L"v", L"数字 · 计算 · 符号"},
                                   {L"Shift", L"切换中 / 英"}, {L"Win 空格", L"切换输入法"}};
 
 enum : int {
@@ -890,7 +892,8 @@ void LoadState() {
   vertical = config.vertical;
   themeName = config.themeName.empty() ? L"auto" : config.themeName;
   bool values[SwCount] = {config.sentenceModel,  config.learn,         config.englishMixed,   config.fullwidthPunct,
-                          config.shiftToggle,    config.startChinese,  config.dynamicPhrases, config.wubiAutoCommit,
+                          config.shiftToggle,    config.startChinese,  config.dynamicPhrases, config.emoji,
+                          config.wubiAutoCommit,
                           config.preeditInWindow, config.characterArt, config.aiEnabled};
   std::copy(values, values + SwCount, sw);
   for (int i = 0; i < 7; ++i)
@@ -941,12 +944,13 @@ void BuildPages() {
   AddCtl(IdFolder, K::Button, 0, kX + 32 + bw, dy + 62, bw, 40, kWhite, L"用户文件夹", 0, L"");
 
   AddCard(0, rx, kTop, rw, kBottom - kTop, L"打字习惯", L"");
-  for (int i = 0; i < 8; ++i) {
-    int ry = kTop + 58 + i * 57;
-    AddText(0, rx + 20, ry + 9, rw - 100, 20, kHabitRows[i].title, 14, kText);
-    AddText(0, rx + 20, ry + 30, rw - 100, 18, kHabitRows[i].desc, 12, kSub);
-    AddCtl(IdSwitch + i, K::Switch, 0, rx + rw - 64, ry + 16, 44, 24, kWhite, L"", i);
-    if (i < 7) visuals.push_back({0, V::Divider, RectF(F(rx + 20), F(ry + 57), F(rw - 40), 0)});
+  constexpr int kHabitCount = int(sizeof(kHabitRows) / sizeof(kHabitRows[0]));
+  for (int i = 0; i < kHabitCount; ++i) {
+    int ry = kTop + 56 + i * 51;
+    AddText(0, rx + 20, ry + 6, rw - 100, 20, kHabitRows[i].title, 14, kText);
+    AddText(0, rx + 20, ry + 27, rw - 100, 18, kHabitRows[i].desc, 12, kSub);
+    AddCtl(IdSwitch + i, K::Switch, 0, rx + rw - 64, ry + 13, 44, 24, kWhite, L"", i);
+    if (i < kHabitCount - 1) visuals.push_back({0, V::Divider, RectF(F(rx + 20), F(ry + 51), F(rw - 40), 0)});
   }
 
   // ---- AI 娘皮肤
@@ -1030,8 +1034,8 @@ void BuildPages() {
   }
   AddCtl(IdReset, K::Button, 3, kX + 20, kBottom - 20 - 40, 150, 40, kWhite, L"恢复默认", 0, L"");
   AddCard(3, rx3, kTop, rw3, kBottom - kTop, L"固定按键", L"");
-  for (int i = 0; i < 8; ++i)
-    visuals.push_back({3, V::Fixed, RectF(F(rx3 + 20), F(kTop + 62 + i * 56), F(rw3 - 40), 40), kFixedKeys[i][0],
+  for (int i = 0; i < int(sizeof(kFixedKeys) / sizeof(kFixedKeys[0])); ++i)
+    visuals.push_back({3, V::Fixed, RectF(F(rx3 + 20), F(kTop + 58 + i * 46), F(rw3 - 40), 38), kFixedKeys[i][0],
                        kFixedKeys[i][1]});
 
   // ---- 底栏
@@ -1113,6 +1117,7 @@ bool Save() {
   flag("general", "learn", SwLearn);
   flag("general", "dynamic_phrases", SwDynamic);
   flag("general", "start_chinese", SwStartCn);
+  flag("general", "emoji", SwEmoji);
   flag("general", "wubi_auto_commit", SwWubi);
   value("general", "fuzzy", fuzzy);
   value("ui", "theme", themeName);
@@ -1547,6 +1552,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int show) {
     fuzzyOn[0] = true;
     fuzzyOn[6] = true;
     sw[SwEnglish] = false;
+    sw[SwEmoji] = false;
     themeName = L"claude";
     keyValues[2] = L"Ctrl+Alt+Y";
     keyValues[4].clear();

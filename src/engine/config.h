@@ -41,6 +41,7 @@ struct Config {
   std::wstring fuzzy;          // 模糊音，比如 "z=zh c=ch s=sh n=l an=ang en=eng in=ing"
   bool debugLog = false;
   bool sentenceModel = true;
+  bool emoji = true;  // 词后面跟着出 emoji
   // [ui]
   std::wstring themeName = L"auto";
   bool vertical = false;

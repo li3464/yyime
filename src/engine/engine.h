@@ -6,6 +6,7 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 #include "config.h"
 #include "converter.h"
@@ -36,6 +37,8 @@ class Engine {
 
   // 五笔反查：词 → 五笔编码（第一次用时才建表）
   std::string WubiCodeOf(std::wstring_view text);
+  // 词 → emoji（data\emoji.txt，第一次用时才读）；没有返回 nullptr
+  const std::vector<std::wstring>* EmojiFor(const std::wstring& word);
 
  private:
   Engine();
@@ -53,6 +56,8 @@ class Engine {
   DWORD configCheckedAt_ = 0;
   bool reverseBuilt_ = false;
   std::unordered_map<std::wstring, std::string> wubiReverse_;
+  std::once_flag emojiOnce_;
+  std::unordered_map<std::wstring, std::vector<std::wstring>> emoji_;
 };
 
 }  // namespace yy

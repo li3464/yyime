@@ -13,6 +13,7 @@ $files = @{
     "rime-ice\en_dicts_en.dict.yaml"     = "https://raw.githubusercontent.com/iDvel/rime-ice/main/en_dicts/en.dict.yaml"
     "rime-ice\en_dicts_en_ext.dict.yaml" = "https://raw.githubusercontent.com/iDvel/rime-ice/main/en_dicts/en_ext.dict.yaml"
     "rime-ice\LICENSE"                   = "https://raw.githubusercontent.com/iDvel/rime-ice/main/LICENSE"
+    "rime-ice\opencc_emoji.txt"          = "https://raw.githubusercontent.com/iDvel/rime-ice/main/opencc/emoji.txt"
     "rime-wubi\wubi86.dict.yaml"         = "https://raw.githubusercontent.com/rime/rime-wubi/master/wubi86.dict.yaml"
     "rime-wubi\LICENSE"                  = "https://raw.githubusercontent.com/rime/rime-wubi/master/LICENSE"
 }

@@ -1,6 +1,6 @@
 本安装包使用以下数据和算法。许可证全文与本文件一同提供。
 
-拼音与英文词库：iDvel/rime-ice
+拼音、英文词库和 emoji 对照表：iDvel/rime-ice
 https://github.com/iDvel/rime-ice
 参见 rime-ice-LICENSE.txt。原始词库可通过 tools/fetch_data.ps1 获取。
 

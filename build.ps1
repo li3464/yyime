@@ -7,7 +7,7 @@ $root = $PSScriptRoot
 $bin = if ($env:LLVM_MINGW) { "$env:LLVM_MINGW\bin" } else { "C:\Users\17821\tools\llvm-mingw\bin" }
 $env:PATH = "$bin;$env:PATH"
 
-$engine = @("util", "dict", "pinyin", "userdict", "config", "default_config", "phrases", "grammar", "converter", "engine", "session") |
+$engine = @("util", "dict", "pinyin", "userdict", "config", "default_config", "phrases", "grammar", "converter", "engine", "extras", "session") |
     ForEach-Object { "$root\src\engine\$_.cpp" }
 $tsf = @("$root\src\tsf\dllmain.cpp", "$root\src\tsf\register.cpp", "$root\src\tsf\text_service.cpp",
          "$root\src\tsf\display_attribute.cpp", "$root\src\tsf\langbar.cpp",

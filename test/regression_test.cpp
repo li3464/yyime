@@ -20,6 +20,19 @@ static void Type(InputSession& session, const char* text) {
     session.OnKeyDown(key);
   }
 }
+// 字母、数字、符号都能打；返回这一串里上屏的字
+static std::wstring Keys(InputSession& session, const char* text) {
+  std::wstring out;
+  for (; *text; ++text) {
+    KeyEvent key; key.ch = wchar_t(*text);
+    if (*text >= 'a' && *text <= 'z') key.vk = unsigned(*text - 'a' + 'A');
+    else if (*text >= '0' && *text <= '9') key.vk = unsigned(*text);
+    else if (*text == ' ') key.vk = VK_SPACE;
+    else key.vk = 0xBA;
+    out += session.OnKeyDown(key).commit;
+  }
+  return out;
+}
 int wmain(int argc, wchar_t** argv) {
   if (argc < 3) return 2;
   std::wstring data = argv[1], user = argv[2];
@@ -99,6 +112,29 @@ int wmain(int argc, wchar_t** argv) {
     response = RunAiRequestBlocking(req);
     if (!response.error.empty()) printf("  transport error: %s\n", WideToUtf8(response.error).c_str());
     Check(response.error.empty() && response.texts.size() == 1 && response.texts[0] == L"Hello, world!", "WinHTTP translation with local mock server");
+  }
+  {
+    InputSession extra; Config ec; ec.learn = false; extra.ApplyConfig(ec);
+    Check(Keys(extra, "xianzai[") == L"现" && Keys(extra, "xianzai]") == L"在", "pick first / last char of word");
+    Check(Keys(extra, "v123 ") == L"一百二十三", "v-mode lowercase number");
+    Keys(extra, "v1234.5");
+    bool money = false;
+    for (auto* c : extra.PageView().items) money = money || c->text == L"壹仟贰佰叁拾肆元伍角";
+    Check(money, "v-mode money in capitals"); extra.Clear();
+    Check(Keys(extra, "v(1+2)*3 ") == L"9" && Keys(extra, "v2^10 ") == L"1024", "v-mode calculator");
+    Keys(extra, "v1+");
+    Check(extra.composing() && extra.PageView().items.empty() && !extra.PageView().status.empty(), "v-mode incomplete formula hint");
+    extra.Clear();
+    Check(Keys(extra, "vjt2") == L"→", "v-mode symbol picked with digit");
+    Check(Keys(extra, "very ") == L"very", "v-word still types English");
+    Keys(extra, "kaixin");
+    auto items = extra.PageView().items;
+    Check(items.size() > 1 && items[0]->text == L"开心" && items[1]->text == L"😄", "emoji follows word");
+    extra.Clear();
+    ec.emoji = false; extra.ApplyConfig(ec); Keys(extra, "kaixin");
+    items = extra.PageView().items;
+    Check(items.size() > 1 && items[1]->text != L"😄", "emoji switch off");
+    extra.Clear();
   }
   printf("%d checks, %d failures\n", checks, failures);
   return failures ? 1 : 0;

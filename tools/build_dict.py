@@ -277,6 +277,30 @@ def write_flat(out_path, magic, count, pool, entry_blob):
         f.write(pool.blob())
 
 
+def build_emoji(src, out_path, log):
+    """rime-ice 的 opencc/emoji.txt（词<TAB>词 表情…）整理成 词<TAB>表情 表情…"""
+    path = os.path.join(src, 'rime-ice/opencc_emoji.txt')
+    if not os.path.exists(path):
+        log('没有 emoji 数据，跳过')
+        return
+    emojis = {}
+    with open(path, encoding='utf-8') as f:
+        for raw in f:
+            parts = raw.rstrip('\r\n').split('\t')
+            if len(parts) != 2 or not parts[0]:
+                continue
+            word = parts[0]
+            items = emojis.setdefault(word, [])
+            for e in parts[1].split(' '):
+                if e and e != word and e not in items:
+                    items.append(e)
+    with open(out_path, 'w', encoding='utf-8', newline='\n') as f:
+        for word, items in emojis.items():
+            if items:
+                f.write(word + '\t' + ' '.join(items[:6]) + '\n')
+    log(f'emoji.txt: {len(emojis)} 个词')
+
+
 def main():
     src, out_dir, report = sys.argv[1], sys.argv[2], sys.argv[3]
     os.makedirs(out_dir, exist_ok=True)
@@ -290,6 +314,7 @@ def main():
     build_pinyin(src, os.path.join(out_dir, 'pinyin.bin'), log)
     build_wubi(src, os.path.join(out_dir, 'wubi86.bin'), log)
     build_english(src, os.path.join(out_dir, 'english.bin'), log)
+    build_emoji(src, os.path.join(out_dir, 'emoji.txt'), log)
     log('完成')
 
 

@@ -4,6 +4,7 @@
 #include <cwchar>
 
 #include "engine.h"
+#include "extras.h"
 #include "util.h"
 
 namespace yy {
@@ -49,6 +50,7 @@ void InputSession::ApplyConfig(const Config& c) {
   wubiAutoCommit_ = c.wubiAutoCommit;
   aiEnabled_ = c.aiEnabled;
   sentenceModel_ = c.sentenceModel;
+  emoji_ = c.emoji;
   composeKey_ = ParseKeyChord(c.aiComposeKey);
   fuzzy_ = FuzzyRules::Parse(c.fuzzy);
 }
@@ -67,6 +69,7 @@ void InputSession::Clear() {
   aiKey_.clear();
   aiPanel_ = false;
   aiMode_ = AiMode::None;
+  hint_.clear();
   ++aiSerial_;  // 还没回来的 AI 结果作废
 }
 
@@ -202,22 +205,43 @@ SessionResult InputSession::OnKeyDown(const KeyEvent& k) {
       return r;
     }
   }
+  // v 模式里数字、运算符都是输入的一部分（小键盘的也算）；
+  // 但 vfh 这种符号码后面按数字还是选候选
+  std::string vBody = VMode() ? Rest().substr(1) : std::string();
+  bool vLetters = !vBody.empty() && vBody.find_first_not_of("abcdefghijklmnopqrstuvwxyz") == std::string::npos;
+  if (VMode() && !vLetters) {
+    wchar_t v = ch;
+    if (k.vk == VK_ADD) v = L'+';
+    else if (k.vk == VK_SUBTRACT) v = L'-';
+    else if (k.vk == VK_MULTIPLY) v = L'*';
+    else if (k.vk == VK_DIVIDE) v = L'/';
+    else if (k.vk == VK_DECIMAL) v = L'.';
+    if (v && std::wcschr(L"0123456789.+-*/%^()", v)) {
+      if (input_.size() < kMaxInput) {
+        input_ += char(v);
+        Refresh();
+      }
+      r.changed = true;
+      return r;
+    }
+  }
   if (ch >= L'1' && ch <= L'9') {
     size_t start = (highlight_ / size_t(pageSize_)) * size_t(pageSize_);
     size_t idx = start + size_t(ch - L'1');
     if (idx < cands_.size() && idx < start + size_t(pageSize_)) return Select(idx);
     return r;
   }
-  if (ch == L'-' || ch == L'[') {
+  if (ch == L'-') {
     PageBy(-1);
     r.changed = true;
     return r;
   }
-  if (ch == L'=' || ch == L']') {
+  if (ch == L'=') {
     PageBy(1);
     r.changed = true;
     return r;
   }
+  if (ch == L'[' || ch == L']') return PickChar(ch == L']');
   if (IsSymbol(ch)) {
     // 标点：先把第一个整串候选上屏，再接标点
     int idx = FullCandidateIndex();
@@ -366,11 +390,14 @@ void InputSession::Refresh() {
   cands_.clear();
   highlight_ = 0;
   conv_ = Conversion{};
+  hint_.clear();
   std::string rest = Rest();
   if (rest.empty()) return;
   Engine& eng = Engine::Get();
   const Dictionaries& d = eng.dicts();
-  if (scheme_ == Scheme::Wubi86) {
+  if (VMode()) {
+    FillVMode(rest);
+  } else if (scheme_ == Scheme::Wubi86) {
     if (rest[0] == 'z') {
       // 五笔里打 z 开头：用拼音找字，后面标上五笔编码
       if (rest.size() > 1) {
@@ -400,6 +427,7 @@ void InputSession::Refresh() {
     ConvertPinyin(d, rest, opt, &conv_);
   }
   cands_ = conv_.cands;
+  if (emoji_ && !VMode()) AddEmoji(rest.size());
 
   if (selected_.empty()) {
     std::vector<Phrase> ph = eng.phrases().Lookup(rest);
@@ -427,6 +455,88 @@ void InputSession::Refresh() {
     }
   }
   if (!aiCands_.empty()) cands_.insert(cands_.begin(), aiCands_.begin(), aiCands_.end());
+}
+
+bool InputSession::VMode() const {
+  return scheme_ == Scheme::Pinyin && selected_.empty() && !input_.empty() && input_[0] == 'v';
+}
+
+void InputSession::FillVMode(const std::string& rest) {
+  conv_.display = rest;
+  std::string body = rest.substr(1);
+  std::vector<std::wstring> texts;
+  bool digitsOnly = !body.empty() && body.find_first_not_of("0123456789.") == std::string::npos;
+  bool hasDigit = body.find_first_of("0123456789") != std::string::npos;
+  if (body.empty()) {
+    hint_ = VModeHint();
+  } else if (digitsOnly) {
+    texts = NumberCandidates(body);
+    if (texts.empty()) hint_ = L"数字太长了，最多 16 位整数";
+  } else if (hasDigit && body.find_first_of("+-*/%^()") != std::string::npos) {
+    std::wstring value;
+    if (Calculate(body, &value)) {
+      texts.push_back(value);
+      texts.push_back(Utf8ToWide(body) + L"=" + value);
+    } else {
+      hint_ = L"算式还没写完";
+    }
+  } else if (auto* symbols = SymbolCategory(body)) {
+    texts = *symbols;
+  } else {
+    // 不是符号分类码：可能是 very、video 这种英文单词
+    if (englishMixed_) AddEnglish(Engine::Get().dicts(), rest, false, &conv_);
+    if (conv_.cands.empty()) hint_ = VModeHint();
+  }
+  for (auto& t : texts) {
+    Candidate c;
+    c.text = t;
+    c.consumed = int(rest.size());
+    c.kind = CandKind::Custom;
+    conv_.cands.push_back(std::move(c));
+  }
+}
+
+void InputSession::AddEmoji(size_t restLen) {
+  // 第一页里第一个整串都能对上、又有 emoji 的词，后面插最多 3 个表情
+  if (restLen < 2) return;  // 只打了一个字母时候选太杂，不跟
+  size_t limit = std::min(cands_.size(), size_t(pageSize_));
+  for (size_t i = 0; i < limit; ++i) {
+    const Candidate& c = cands_[i];
+    if (c.consumed < int(restLen) || (c.kind != CandKind::Word && c.kind != CandKind::Sentence)) continue;
+    const auto* list = Engine::Get().EmojiFor(c.text);
+    if (!list || list->empty()) continue;
+    std::vector<Candidate> extra;
+    for (size_t j = 0; j < list->size() && j < 3; ++j) {
+      Candidate e;
+      e.text = (*list)[j];
+      e.consumed = int(restLen);
+      e.kind = CandKind::Custom;
+      extra.push_back(std::move(e));
+    }
+    cands_.insert(cands_.begin() + long(i) + 1, extra.begin(), extra.end());
+    return;
+  }
+}
+
+SessionResult InputSession::PickChar(bool last) {
+  SessionResult r;
+  r.eaten = true;
+  if (highlight_ >= cands_.size() || cands_[highlight_].text.empty()) return r;
+  Candidate c = cands_[highlight_];
+  const std::wstring& t = c.text;
+  size_t start = 0, len = 1;
+  if (last) {
+    start = t.size() - 1;
+    if (start > 0 && t[start] >= 0xDC00 && t[start] <= 0xDFFF) --start;
+    len = t.size() - start;
+  } else if (t.size() > 1 && t[0] >= 0xD800 && t[0] <= 0xDBFF) {
+    len = 2;
+  }
+  c.text = t.substr(start, len);
+  c.kind = CandKind::Custom;  // 不当作选了整个词去学习
+  c.syls.clear();
+  cands_[highlight_] = c;
+  return Select(highlight_);
 }
 
 int InputSession::FullCandidateIndex() const {
@@ -511,7 +621,7 @@ InputSession::View InputSession::PageView() const {
   v.highlight = int(highlight_ - start);
   v.hasPrev = start > 0;
   v.hasNext = start + ps < cands_.size();
-  v.status = aiStatus_;
+  v.status = aiStatus_.empty() ? hint_ : aiStatus_;
   return v;
 }
 

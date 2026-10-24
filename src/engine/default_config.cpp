@@ -34,6 +34,8 @@ fuzzy =
 debug_log = false
 ; 使用本地语言模型优化整句，不联网
 sentence_model = true
+; 打“开心”时后面跟着出 😄 这样的 emoji
+emoji = true
 
 [ui]
 ; 皮肤：auto 跟随系统深浅色 / light 晴空 / dark 夜幕 / sakura 樱花 / mint 薄荷 / ink 水墨 / violet 星紫 / amber 琥珀

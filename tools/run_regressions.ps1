@@ -2,7 +2,7 @@
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
 $bin = if ($env:LLVM_MINGW) { "$env:LLVM_MINGW\bin" } else { 'C:\Users\17821\tools\llvm-mingw\bin' }
-$engine = @('util','dict','pinyin','userdict','config','default_config','phrases','grammar','converter','engine','session') |
+$engine = @('util','dict','pinyin','userdict','config','default_config','phrases','grammar','converter','engine','extras','session') |
     ForEach-Object { "$root\src\engine\$_.cpp" }
 New-Item -ItemType Directory -Force "$root\build" | Out-Null
 & "$bin\x86_64-w64-mingw32-clang++.exe" -std=c++20 -O2 -municode -static -DUNICODE -D_UNICODE -DNOMINMAX `

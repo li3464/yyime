@@ -88,6 +88,10 @@ class InputSession {
   std::string Rest() const { return input_.substr(size_t(consumed_)); }
   std::string StateKey() const;
   SessionResult Select(size_t absIndex);
+  SessionResult PickChar(bool last);  // 以词定字：取高亮词的第一个/最后一个字
+  bool VMode() const;                 // 全拼下 v 开头：数字、计算、符号
+  void FillVMode(const std::string& rest);
+  void AddEmoji(size_t restLen);
   SessionResult CommitRaw();
   void Backspace();
   void Learn(const Candidate& last);
@@ -104,6 +108,8 @@ class InputSession {
   bool englishMixed_ = true, shiftToggle_ = true, fullwidthPunct_ = true, learn_ = true, dynamic_ = true;
   bool wubiAutoCommit_ = true, aiEnabled_ = true;
   bool sentenceModel_ = true;
+  bool emoji_ = true;
+  std::wstring hint_;  // v 模式之类的提示，显示在候选框顶上那行右边
   KeyChord composeKey_ = ParseKeyChord(L"Tab");
   FuzzyRules fuzzy_;
 
