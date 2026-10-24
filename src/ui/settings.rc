@@ -1,0 +1,4 @@
+#pragma code_page(65001)
+#include <windows.h>
+101 ICON "res/yyime.ico"
+1 RT_MANIFEST "ui/settings.manifest"

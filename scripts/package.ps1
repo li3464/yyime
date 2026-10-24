@@ -2,12 +2,23 @@
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 $dist = Join-Path $root "dist\yyime"
-if (Test-Path $dist) { Remove-Item $dist -Recurse -Force }
+foreach ($name in @('deepseek','gpt','claude','gemini','qwen','glm','minimax','zcode','kimi','grok')) {
+    if (-not (Test-Path -LiteralPath "$root\themes\$name.png")) { throw "Missing character artwork: $name" }
+}
+if (Test-Path -LiteralPath $dist) {
+    $resolvedRoot = [IO.Path]::GetFullPath($root).TrimEnd('\') + '\'
+    $resolvedDist = [IO.Path]::GetFullPath($dist)
+    if (-not $resolvedDist.StartsWith($resolvedRoot, [StringComparison]::OrdinalIgnoreCase)) { throw "Unsafe output directory" }
+    Remove-Item -LiteralPath $resolvedDist -Recurse -Force
+}
 New-Item -ItemType Directory -Force (Join-Path $dist "data") | Out-Null
 
 Copy-Item "$root\build\x64\yyime64.dll" $dist
 Copy-Item "$root\build\x86\yyime32.dll" $dist
-foreach ($f in @("pinyin.bin", "wubi86.bin", "english.bin")) { Copy-Item "$root\data\$f" "$dist\data\$f" }
+Copy-Item "$root\build\yyime-settings.exe" $dist
+foreach ($f in @("pinyin.bin", "wubi86.bin", "english.bin", "zh-hans-t-essay-bgw.gram")) { Copy-Item "$root\data\$f" "$dist\data\$f" }
+Copy-Item -LiteralPath "$root\licenses" -Destination $dist -Recurse -Force
+Copy-Item -LiteralPath "$root\themes" -Destination $dist -Recurse -Force
 foreach ($f in @("install.ps1", "uninstall.ps1", "README.txt")) { Copy-Item "$root\scripts\$f" $dist }
 
 # 双击用的 .bat：内容只有英文，文件名用中文

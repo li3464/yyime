@@ -30,35 +30,40 @@ function Say([string]$m) {
     Add-Content -Path $LogFile -Value $m -Encoding UTF8
 }
 
-# 目标文件正被别的程序用着时删不掉，就先改个名，新程序启动会用新文件
+# 保留旧版本；正在使用的 DLL 改名后，重新启动的应用会加载新版。
 function Copy-Safe([string]$src, [string]$dst) {
     if (Test-Path $dst) {
-        try {
-            Remove-Item $dst -Force -ErrorAction Stop
-        } catch {
-            $stamp = Get-Date -Format "yyyyMMddHHmmss"
-            Rename-Item $dst ((Split-Path $dst -Leaf) + ".old" + $stamp) -Force
-        }
+        $stamp = Get-Date -Format "yyyyMMddHHmmssfff"
+        Rename-Item -LiteralPath $dst -NewName ((Split-Path $dst -Leaf) + ".old" + $stamp) -ErrorAction Stop
     }
-    Copy-Item $src $dst -Force
+    Copy-Item -LiteralPath $src -Destination $dst -Force
 }
 
 try {
     Say "== yy输入法 安装 $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') =="
-    foreach ($f in @("yyime64.dll", "yyime32.dll", "data\pinyin.bin", "data\wubi86.bin", "data\english.bin")) {
+    foreach ($f in @("yyime64.dll", "yyime32.dll", "yyime-settings.exe", "data\pinyin.bin", "data\wubi86.bin", "data\english.bin", "data\zh-hans-t-essay-bgw.gram")) {
         if (-not (Test-Path (Join-Path $Source $f))) { throw "安装包里缺少文件：$f" }
+    }
+    foreach ($name in @('deepseek','gpt','claude','gemini','qwen','glm','minimax','zcode','kimi','grok')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $Source "themes\$name.png"))) { throw "Missing character artwork: $name" }
     }
     New-Item -ItemType Directory -Force $Target | Out-Null
     New-Item -ItemType Directory -Force (Join-Path $Target "data") | Out-Null
-    Get-ChildItem $Target -Recurse -Filter "*.old*" -ErrorAction SilentlyContinue |
-        ForEach-Object { Remove-Item $_.FullName -Force -ErrorAction SilentlyContinue }
-
     foreach ($f in @("yyime64.dll", "yyime32.dll", "data\pinyin.bin", "data\wubi86.bin", "data\english.bin",
-                     "uninstall.ps1", "README.txt")) {
+                     "data\zh-hans-t-essay-bgw.gram", "yyime-settings.exe", "uninstall.ps1", "README.txt")) {
         $src = Join-Path $Source $f
         if (Test-Path $src) { Copy-Safe $src (Join-Path $Target $f) }
     }
     Say "文件已复制到 $Target"
+    if (Test-Path -LiteralPath (Join-Path $Source "licenses")) {
+        Copy-Item -LiteralPath (Join-Path $Source "licenses") -Destination $Target -Recurse -Force
+    }
+    if (Test-Path -LiteralPath (Join-Path $Source "themes")) {
+        Copy-Item -LiteralPath (Join-Path $Source "themes") -Destination $Target -Recurse -Force
+    }
+    $shortcut = (New-Object -ComObject WScript.Shell).CreateShortcut((Join-Path $Target "输入法设置.lnk"))
+    $shortcut.TargetPath = Join-Path $Target "yyime-settings.exe"
+    $shortcut.Save()
 
     $r64 = Start-Process "$env:SystemRoot\System32\regsvr32.exe" -ArgumentList "/s `"$Target\yyime64.dll`"" -Wait -PassThru
     if ($r64.ExitCode -ne 0) { throw "注册 64 位组件失败（代码 $($r64.ExitCode)）" }

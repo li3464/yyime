@@ -10,11 +10,23 @@
 
 #include <cstdio>
 #include <string>
+#include <vector>
 
 #include "../src/tsf/globals.h"
 #include "../src/tsf/tsf_compat.h"
 
 static std::string g_out;
+static bool g_menuSeen = false;
+static int g_menuTicks = 0;
+
+static void CALLBACK MenuProbe(HWND, UINT, UINT_PTR timer, DWORD) {
+  GUITHREADINFO info{sizeof(info)};
+  if (GetGUIThreadInfo(GetCurrentThreadId(), &info) && (info.flags & GUI_INMENUMODE) && info.hwndMenuOwner) {
+    g_menuSeen = IsWindowVisible(info.hwndMenuOwner) != FALSE;
+    PostMessageW(info.hwndMenuOwner, WM_CANCELMODE, 0, 0);
+    KillTimer(nullptr, timer);
+  } else if (++g_menuTicks > 10) KillTimer(nullptr, timer);
+}
 
 static std::string Utf8(const std::wstring& w) {
   if (w.empty()) return {};
@@ -258,6 +270,16 @@ static void Type(ITfKeystrokeMgr* km, TextStore* store, const std::string& scrip
       size_t close = script.find('}', i);
       std::string name = script.substr(i + 1, close - i - 1);
       i = close;
+      if (name == "wait") { Pump(800); continue; }
+      if (name == "translate") {
+        BYTE saved[256], modified[256];
+        GetKeyboardState(saved); memcpy(modified, saved, sizeof(saved));
+        modified[VK_CONTROL] = modified[VK_MENU] = 0x80;
+        SetKeyboardState(modified);
+        SendKey(km, store, 'T', 0);
+        SetKeyboardState(saved);
+        continue;
+      }
       UINT vk = name == "sp" ? VK_SPACE : name == "cr" ? VK_RETURN : name == "bs" ? VK_BACK
               : name == "esc" ? VK_ESCAPE : name == "shift" ? VK_SHIFT : name == "pgdn" ? VK_NEXT : 0;
       wchar_t ch = name == "sp" ? L' ' : name == "cr" ? L'\r' : 0;
@@ -285,11 +307,14 @@ int wmain(int argc, wchar_t** argv) {
   RECT work{};
   SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0);
   RECT caret{work.right - 420, work.bottom - 140, work.right - 418, work.bottom - 120};
-  // local：让窗口在本线程里拿到焦点（不抢系统前台）
+  // local：让自己的小测试窗口取得 TSF 键盘焦点。
   bool local = argc >= 3 && wcscmp(argv[2], L"local") == 0;
   HWND hwnd = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"yyime-test", WS_POPUP | (local ? WS_VISIBLE : 0),
                               work.right - 4, work.bottom - 4, 2, 2, nullptr, nullptr, nullptr, nullptr);
   if (local) {
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);  // 消耗启动器可能指定的 SW_HIDE。
+    ShowWindow(hwnd, SW_SHOWNORMAL);
+    SetForegroundWindow(hwnd);
     SetActiveWindow(hwnd);
     SetFocus(hwnd);
   }
@@ -323,7 +348,9 @@ int wmain(int argc, wchar_t** argv) {
   struct Case {
     const char* keys;
     const wchar_t* expect;
-  } cases[] = {
+    const wchar_t* initial = L"";
+  };
+  std::vector<Case> cases = {
       {"nihao{sp}", L"你好"},
       {"zhongguoren{sp}", L"中国人"},
       {"nihao{cr}", L"nihao"},
@@ -335,14 +362,22 @@ int wmain(int argc, wchar_t** argv) {
       {"nihao{esc}", L""},
       {"{shift}hello{shift}", L"hello"},
       {"jintiantianqizhenhao{sp}", L"今天天气真好"},
+      {"womenyiqiqukandianyingba{sp}", L"我们一起去看电影吧"},
       {"wo{sp}men{sp}", L"我们"},
       {"xian1shi{sp}", L"先是"},
       {"3.14", L"3.14"},
       {"rq2", nullptr},  // 日期，只看有没有东西
   };
+  if (argc >= 4 && wcscmp(argv[3], L"ai") == 0) {
+    cases.push_back({"{translate}{wait}{sp}", L"Hello, world!", L"你好世界"});
+    cases.push_back({"{translate}{wait}{esc}", L""});
+  }
   int pass = 0, total = 0;
   for (auto& c : cases) {
     TextStore* store = new TextStore();
+    store->text = c.initial;
+    store->selStart = 0;
+    store->selEnd = LONG(store->text.size());
     store->hwnd = hwnd;
     store->caret = caret;
     ITfDocumentMgr* dm = nullptr;
@@ -376,6 +411,31 @@ int wmain(int argc, wchar_t** argv) {
     store->Release();
     Pump(20);
   }
+  // 通过真正的语言栏 COM 接口右键两次，检查原生菜单确实进入显示状态。
+  ITfLangBarItemMgr* items = nullptr;
+  ITfLangBarItem* item = nullptr;
+  ITfLangBarItemButton* button = nullptr;
+  if (SUCCEEDED(tm->QueryInterface(IID_ITfLangBarItemMgr, reinterpret_cast<void**>(&items))) &&
+      SUCCEEDED(items->GetItem(tsfx::GUID_LBI_INPUTMODE, &item)))
+    item->QueryInterface(tsfx::IID_ITfLangBarItemButton, reinterpret_cast<void**>(&button));
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    if (attempt == 1) {
+      // 托盘不应依赖某个仍然存活的输入控件。
+      DestroyWindow(hwnd);
+      hwnd = nullptr;
+    }
+    g_menuSeen = false; g_menuTicks = 0;
+    UINT_PTR timer = SetTimer(nullptr, 0, 50, MenuProbe);
+    HRESULT click = button ? button->OnClick(TF_LBI_CLK_RIGHT, {work.right-300, work.bottom-50}, nullptr) : E_FAIL;
+    Pump(600);
+    KillTimer(nullptr, timer);
+    bool ok = SUCCEEDED(click) && g_menuSeen;
+    ++total; pass += ok;
+    g_out += std::string(ok ? "  通过  " : "  不对  ") + "托盘右键显示菜单 #" + std::to_string(attempt+1) + "\n";
+  }
+  if (button) button->Release();
+  if (item) item->Release();
+  if (items) items->Release();
   snprintf(line, sizeof(line), "结果：%d / %d 通过\n", pass, total);
   g_out += line;
   if (km) km->Release();
@@ -388,5 +448,5 @@ int wmain(int argc, wchar_t** argv) {
   WriteFile(f, g_out.data(), DWORD(g_out.size()), &n, nullptr);
   CloseHandle(f);
   CoUninitialize();
-  return 0;
+  return pass == total ? 0 : 1;
 }

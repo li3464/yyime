@@ -62,6 +62,7 @@ void Engine::EnsureInit() {
     dicts_.pinyin.Load(dataDir_ + L"\\pinyin.bin");
     dicts_.wubi.Load(dataDir_ + L"\\wubi86.bin");
     dicts_.english.Load(dataDir_ + L"\\english.bin");
+    dicts_.gram.Load(dataDir_ + L"\\zh-hans-t-essay-bgw.gram");
     dicts_.table.Build(dicts_.pinyin);
     dicts_.xiaohe.Build(Scheme::Xiaohe, dicts_.table);
     dicts_.ziranma.Build(Scheme::Ziranma, dicts_.table);

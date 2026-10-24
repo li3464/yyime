@@ -9,7 +9,7 @@ class TextService;
 class LangBarButton final : public ITfLangBarItemButton, public ITfSource {
  public:
   explicit LangBarButton(TextService* owner);
-  void Detach() { owner_ = nullptr; }
+  void Detach();
   void Update();  // 通知系统重新取图标和文字
 
   // IUnknown
@@ -33,6 +33,10 @@ class LangBarButton final : public ITfLangBarItemButton, public ITfSource {
 
  private:
   ~LangBarButton();
+  static LRESULT CALLBACK MenuWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+  HWND menuWnd_ = nullptr;
+  WNDPROC menuWndProc_ = nullptr;
+  bool menuOpen_ = false;
   LONG ref_ = 1;
   TextService* owner_ = nullptr;
   ITfLangBarItemSink* sink_ = nullptr;

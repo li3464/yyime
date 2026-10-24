@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "dict.h"
+#include "grammar.h"
 #include "pinyin.h"
 #include "userdict.h"
 
@@ -25,6 +26,7 @@ struct Dictionaries {
   PinyinDict pinyin;
   WubiDict wubi;
   EnglishDict english;
+  GramModel gram;  // 语言模型，没有也能用（退回只看词频）
   SyllableTable table;
   ShuangpinScheme xiaohe, ziranma, mspy;
   const ShuangpinScheme* Shuangpin(Scheme s) const;
@@ -41,6 +43,8 @@ struct ConvertOptions {
   const FuzzyRules* fuzzy = nullptr;
   bool englishMixed = true;
   const UserTrie* user = nullptr;
+  bool useGrammar = true;
+  std::wstring_view context;  // 前面已经选好的字，组句时当上文
 };
 
 void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertOptions& opt, Conversion* out);

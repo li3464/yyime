@@ -11,6 +11,8 @@ namespace yy {
 struct Theme {
   std::wstring name;
   std::wstring label;
+  std::wstring artwork;
+  std::wstring description;
   uint32_t background = 0xFFFFFFFF;  // ARGB
   uint32_t border = 0xFFE4E4E7;
   uint32_t text = 0xFF18181B;
@@ -38,12 +40,14 @@ struct Config {
   bool wubiAutoCommit = true;  // 五笔四码唯一自动上屏
   std::wstring fuzzy;          // 模糊音，比如 "z=zh c=ch s=sh n=l an=ang en=eng in=ing"
   bool debugLog = false;
+  bool sentenceModel = true;
   // [ui]
   std::wstring themeName = L"auto";
   bool vertical = false;
   std::wstring fontFace = L"Microsoft YaHei UI";
   float fontSize = 17.0f;
   bool preeditInWindow = true;
+  bool characterArt = true;
   // [ai]
   bool aiEnabled = true;
   std::wstring aiBaseUrl = L"https://api.deepseek.com";
@@ -53,6 +57,10 @@ struct Config {
   int aiTimeoutMs = 20000;
   std::wstring aiComposeKey = L"Tab";
   std::wstring aiHotkey = L"Ctrl+Alt+Space";
+  std::wstring translateHotkey = L"Ctrl+Alt+T";
+  std::wstring settingsHotkey = L"Ctrl+Alt+O";
+  std::wstring punctHotkey = L"Ctrl+.";
+  std::wstring translateTarget = L"auto";
 
   std::vector<Theme> themes;  // 内置皮肤 + 用户自己在 [theme.xxx] 里写的
 
@@ -60,6 +68,7 @@ struct Config {
 };
 
 std::vector<Theme> BuiltinThemes();
+std::wstring ThemeAssetPath(const Theme& theme);
 // 在默认值上叠加文件里的设置；文件不存在也返回 true（全用默认值）
 bool LoadConfig(const std::wstring& path, Config* cfg);
 // 第一次运行时写出去的带注释的设置文件
@@ -67,5 +76,7 @@ std::string DefaultConfigText();
 // 改一个设置（右键菜单用），保留文件里其他内容和注释
 bool SaveConfigValue(const std::wstring& path, const std::string& section, const std::string& key,
                      const std::string& value);
+struct ConfigChange { std::string section, key, value; };
+bool SaveConfigValues(const std::wstring& path, const std::vector<ConfigChange>& changes);
 
 }  // namespace yy

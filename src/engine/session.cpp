@@ -48,6 +48,8 @@ void InputSession::ApplyConfig(const Config& c) {
   dynamic_ = c.dynamicPhrases;
   wubiAutoCommit_ = c.wubiAutoCommit;
   aiEnabled_ = c.aiEnabled;
+  sentenceModel_ = c.sentenceModel;
+  composeKey_ = ParseKeyChord(c.aiComposeKey);
   fuzzy_ = FuzzyRules::Parse(c.fuzzy);
 }
 
@@ -105,6 +107,10 @@ SessionResult InputSession::OnKeyDown(const KeyEvent& k) {
     lastDigit_ = false;
     return r;
   }
+  if (aiEnabled_ && composeKey_.Matches(k.vk, k.ctrl, k.alt, k.shift)) {
+    r.aiRequested = true;
+    return r;
+  }
   if (k.ctrl || k.alt) return r;
 
   switch (k.vk) {
@@ -139,10 +145,6 @@ SessionResult InputSession::OnKeyDown(const KeyEvent& k) {
       r.changed = true;
       return r;
     case VK_TAB:
-      if (aiEnabled_ && !k.shift) {
-        r.aiRequested = true;
-        return r;
-      }
       MoveHighlight(k.shift ? -1 : 1);
       r.changed = true;
       return r;
@@ -392,6 +394,9 @@ void InputSession::Refresh() {
     opt.fuzzy = &fuzzy_;
     opt.englishMixed = englishMixed_;
     opt.user = user.get();
+    opt.useGrammar = sentenceModel_;
+    std::wstring selectedContext = SelectedText();
+    opt.context = selectedContext;
     ConvertPinyin(d, rest, opt, &conv_);
   }
   cands_ = conv_.cands;
@@ -494,7 +499,7 @@ std::wstring InputSession::Preedit() const {
 }
 
 std::wstring InputSession::AuxText() const {
-  if (aiPanel_) return aiMode_ == AiMode::Polish ? L"AI 润色" : L"AI 续写";
+  if (aiPanel_) return aiMode_ == AiMode::Translate ? L"AI 翻译" : aiMode_ == AiMode::Polish ? L"AI 润色" : L"AI 续写";
   return Preedit();
 }
 
@@ -525,7 +530,7 @@ int InputSession::BeginAiPanel(AiMode mode) {
   Clear();
   aiPanel_ = true;
   aiMode_ = mode;
-  aiStatus_ = mode == AiMode::Polish ? L"✨ AI 正在润色…" : L"✨ AI 正在往下写…";
+  aiStatus_ = mode == AiMode::Translate ? L"AI 正在翻译…" : mode == AiMode::Polish ? L"AI 正在润色…" : L"AI 正在往下写…";
   return aiSerial_;
 }
 

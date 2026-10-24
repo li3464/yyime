@@ -156,7 +156,8 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
   TrieView usr = opt.user ? opt.user->view() : TrieView{};
   const TrieView* tries[2] = {&sys, &usr};
 
-  std::vector<std::unordered_map<int, BestWord>> best(size_t(n) + 1);
+  const bool grammar = opt.useGrammar && d.gram.loaded();
+  std::vector<std::unordered_map<int, std::vector<BestWord>>> best(size_t(n) + 1);
   std::vector<StartMatch> starts;
   for (int s = 0; s < n; ++s) {
     if (lat.out[size_t(s)].empty()) continue;
@@ -166,13 +167,27 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
       auto onMatch = [&](int end, const TrieNode& node, int pen, const Path& p) {
         auto [eb, ee] = t->entriesOf(node);
         if (!eb) return;
-        int c = int(eb->cost) + pen;
-        BestWord& bw = best[size_t(s)][end];
-        if (c < bw.cost) {
-          bw.cost = c;
-          bw.text = t->textOf(*eb);
+        auto& choices = best[size_t(s)][end];
+        int taken = 0;
+        for (auto entry = eb; entry != ee && taken < (grammar ? 8 : 1); ++entry, ++taken) {
+          BestWord bw;
+          bw.cost = int(entry->cost) + pen;
+          bw.text = t->textOf(*entry);
+          if (bw.text.empty()) continue;
           bw.syls = p.syls;
           bw.edges = p.edges;
+          auto same = std::find_if(choices.begin(), choices.end(), [&](const BestWord& old) {
+            return old.text == bw.text;
+          });
+          if (same != choices.end()) {
+            if (same->cost <= bw.cost) continue;
+            *same = std::move(bw);
+          } else choices.push_back(std::move(bw));
+          std::sort(choices.begin(), choices.end(), [](const BestWord& x, const BestWord& y) {
+            if (x.cost != y.cost) return x.cost < y.cost;
+            return x.text < y.text;
+          });
+          if (choices.size() > size_t(grammar ? 8 : 1)) choices.resize(grammar ? 8 : 1);
         }
         if (s == 0) starts.push_back(StartMatch{end, pen, t, &node, p.syls});
       };
@@ -180,62 +195,87 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
     }
   }
 
-  // ---- 组整句：从头到尾代价最小的走法
-  std::vector<int> dist(size_t(n) + 1, INT_MAX);
-  struct Back {
-    int from = -1;
-    int kind = -1;  // 0 隔音符 1 词 2 认不出的字母
+  // 有界束搜索：保留多条同音路径，搭配分与词频一起决定整句。
+  struct Hypothesis {
+    double cost = 0;
+    std::wstring text;
+    std::u32string context;
+    std::vector<uint16_t> syls;
+    std::string display;
+    bool clean = true, learnable = true;
+    int lastKind = -1;
   };
-  std::vector<Back> back(size_t(n) + 1);
-  dist[0] = 0;
-  for (int p = 0; p < n; ++p) {
-    if (dist[size_t(p)] == INT_MAX) continue;
-    auto relax = [&](int to, int cost, int kind) {
-      if (cost < dist[size_t(to)]) {
-        dist[size_t(to)] = cost;
-        back[size_t(to)] = Back{p, kind};
+  const size_t width = grammar ? 10 : 1;
+  std::vector<std::vector<Hypothesis>> beam(size_t(n) + 1);
+  Hypothesis initial;
+  initial.context = ToCodePoints(opt.context);
+  if (initial.context.size() > 3) initial.context.erase(0, initial.context.size() - 3);
+  beam[0].push_back(initial);
+  auto push = [&](int end, Hypothesis h) {
+    auto& dest = beam[size_t(end)];
+    auto same = std::find_if(dest.begin(), dest.end(), [&](const Hypothesis& old) { return old.text == h.text; });
+    if (same != dest.end()) {
+      if (same->cost <= h.cost) return;
+      *same = std::move(h);
+    } else dest.push_back(std::move(h));
+    std::sort(dest.begin(), dest.end(), [](const Hypothesis& x, const Hypothesis& y) {
+      if (x.cost != y.cost) return x.cost < y.cost;
+      return x.text < y.text;
+    });
+    if (dest.size() > width) dest.resize(width);
+  };
+  for (int pos = 0; pos < n; ++pos) {
+    for (const auto& h : beam[size_t(pos)]) {
+      for (int ei : lat.out[size_t(pos)]) {
+        const auto& edge = lat.edges[size_t(ei)];
+        if (edge.kind != EdgeKind::Sep) continue;
+        Hypothesis next = h;
+        if (!next.display.empty() && next.display.back() != '\'') next.display += '\'';
+        next.lastKind = 0;
+        push(edge.to, std::move(next));
       }
-    };
-    for (int ei : lat.out[size_t(p)])
-      if (lat.edges[size_t(ei)].kind == EdgeKind::Sep) relax(lat.edges[size_t(ei)].to, dist[size_t(p)], 0);
-    for (auto& [end, bw] : best[size_t(p)]) relax(end, dist[size_t(p)] + bw.cost, 1);
-    relax(p + 1, dist[size_t(p)] + kRawCost, 2);
+      for (const auto& [end, choices] : best[size_t(pos)]) {
+        for (const auto& bw : choices) {
+          Hypothesis next = h;
+          auto codepoints = ToCodePoints(bw.text);
+          next.cost += bw.cost;
+          // 搭配分作为转移代价。不能给每次切词固定奖励，否则会偏向把“中国”拆成“中过”。
+          if (grammar && !h.context.empty()) next.cost -= 650.0 * d.gram.Query(h.context, codepoints, end == n);
+          next.text += bw.text;
+          next.context += codepoints;
+          if (next.context.size() > 3) next.context.erase(0, next.context.size() - 3);
+          next.syls.insert(next.syls.end(), bw.syls.begin(), bw.syls.end());
+          for (size_t k = 0; k < bw.edges.size(); ++k) {
+            const auto& edge = lat.edges[size_t(bw.edges[k])];
+            if (!next.display.empty() && next.display.back() != '\'') next.display += '\'';
+            if (shuangpin && edge.kind == EdgeKind::Full) next.display += d.table.name(bw.syls[k]);
+            else next.display += edge.spelling;
+            if (edge.kind == EdgeKind::Abbr && edge.to != n) next.clean = false;
+          }
+          next.lastKind = 1;
+          push(end, std::move(next));
+        }
+      }
+      Hypothesis raw = h;
+      raw.cost += kRawCost;
+      raw.text += wchar_t((unsigned char)input[size_t(pos)]);
+      if (raw.lastKind != 2 && !raw.display.empty() && raw.display.back() != '\'') raw.display += '\'';
+      raw.display += input[size_t(pos)];
+      raw.clean = raw.learnable = false;
+      raw.lastKind = 2;
+      raw.context.clear();
+      push(pos + 1, std::move(raw));
+    }
   }
-  std::vector<std::pair<int, int>> steps;  // (起点, 终点)
-  for (int p = n; p > 0; p = back[size_t(p)].from) steps.emplace_back(back[size_t(p)].from, p);
-  std::reverse(steps.begin(), steps.end());
-
   Candidate sentence;
   sentence.kind = CandKind::Sentence;
   sentence.consumed = n;
-  sentence.cost = dist[size_t(n)];
-  bool learnable = true, clean = true;
-  int prevKind = -1;
-  for (auto [from, to] : steps) {
-    int kind = back[size_t(to)].kind;
-    if (kind == 0) {
-      if (!out->display.empty() && out->display.back() != '\'') out->display += '\'';
-    } else if (kind == 1) {
-      const BestWord& bw = best[size_t(from)].at(to);
-      sentence.text += bw.text;
-      sentence.syls.insert(sentence.syls.end(), bw.syls.begin(), bw.syls.end());
-      for (size_t k = 0; k < bw.edges.size(); ++k) {
-        const LatticeEdge& e = lat.edges[size_t(bw.edges[k])];
-        if (!out->display.empty() && out->display.back() != '\'') out->display += '\'';
-        if (shuangpin && e.kind == EdgeKind::Full) out->display += d.table.name(bw.syls[k]);
-        else out->display += e.spelling;
-        if (e.kind == EdgeKind::Abbr && e.to != n) clean = false;
-      }
-    } else {
-      sentence.text += wchar_t((unsigned char)input[size_t(from)]);
-      learnable = false;
-      clean = false;
-      if (prevKind != 2 && !out->display.empty() && out->display.back() != '\'') out->display += '\'';
-      out->display += input[size_t(from)];
-    }
-    prevKind = kind;
-  }
-  if (!learnable) sentence.syls.clear();
+  const auto& winning = beam[size_t(n)].front();
+  sentence.text = winning.text;
+  sentence.cost = int(winning.cost);
+  if (winning.learnable) sentence.syls = winning.syls;
+  out->display = winning.display;
+  const bool clean = winning.clean;
   out->clean = clean;
 
   // ---- 从头开始的词：覆盖得越长越靠前，同样长的按代价

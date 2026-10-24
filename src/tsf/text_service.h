@@ -67,7 +67,7 @@ class TextService final : public ITfTextInputProcessorEx,
   bool chinese() const { return session_.chinese(); }
   Scheme scheme() const { return session_.scheme(); }
   void ToggleChinese();
-  void ShowMenu(POINT pt);
+  void ShowMenu(POINT pt, HWND menuOwner = nullptr);
 
  private:
   ~TextService();
@@ -93,6 +93,7 @@ class TextService final : public ITfTextInputProcessorEx,
   KeyEvent MakeKeyEvent(WPARAM wParam) const;
   bool IsKeyboardDisabled(ITfContext* pic) const;
   bool MatchHotkey(const KeyEvent& k) const;
+  void OpenSettings();
   void HandleResult(ITfContext* pic, const SessionResult& r);
 
   // 改文档（都在编辑会话里调用）
@@ -115,7 +116,7 @@ class TextService final : public ITfTextInputProcessorEx,
 
   // AI
   void StartAiCompose(ITfContext* pic);
-  void StartAiPanel(ITfContext* pic);
+  void StartAiPanel(ITfContext* pic, bool translate = false);
   void OnAiDone(int requestId, void* response);
 
   // 鼠标点候选
@@ -144,8 +145,7 @@ class TextService final : public ITfTextInputProcessorEx,
   std::shared_ptr<const Config> cfg_;
   bool systemDark_ = false;
   DWORD darkCheckedAt_ = 0;
-  UINT hotkeyVk_ = 0;
-  bool hotkeyCtrl_ = false, hotkeyAlt_ = false, hotkeyShift_ = false;
+  KeyChord aiHotkey_, translateKey_, settingsKey_, punctKey_;
 
   CandidateWindow* candWnd_ = nullptr;
   LangBarButton* langBar_ = nullptr;

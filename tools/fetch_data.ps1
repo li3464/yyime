@@ -27,6 +27,14 @@ foreach ($rel in $files.Keys) {
 }
 $report = Join-Path $root "data\build_report.txt"
 New-Item -ItemType Directory -Force (Join-Path $root "data") | Out-Null
+# 整句用的语言模型（rime-octagram-data 的 hans 分支，LGPL-3.0），直接放进 data\
+$gram = Join-Path $root "data\zh-hans-t-essay-bgw.gram"
+$gramArgs = @("-sSL", "--fail", "--max-time", "900", "-o", $gram,
+              "https://raw.githubusercontent.com/lotem/rime-octagram-data/hans/zh-hans-t-essay-bgw.gram")
+if ($Proxy) { $gramArgs = @("-x", $Proxy) + $gramArgs }
+& curl.exe @gramArgs
+if ($LASTEXITCODE -ne 0) { throw "下载语言模型失败" }
+Write-Output ("下载好了 语言模型  {0:N0} 字节" -f (Get-Item $gram).Length)
 & $Python -I (Join-Path $PSScriptRoot "build_dict.py") $src (Join-Path $root "data") $report
 if ($LASTEXITCODE -ne 0) { throw "编译词库失败" }
 Get-Content $report -Encoding UTF8 | Select-Object -Last 4

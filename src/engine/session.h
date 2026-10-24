@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "config.h"
+#include "hotkey.h"
 #include "converter.h"
 
 namespace yy {
@@ -29,7 +30,7 @@ struct SessionResult {
   bool aiRequested = false;  // 要发 AI 请求
 };
 
-enum class AiMode { None, Compose, Polish, Continue };
+enum class AiMode { None, Compose, Polish, Continue, Translate };
 
 class InputSession {
  public:
@@ -102,6 +103,8 @@ class InputSession {
   int pageSize_ = 7;
   bool englishMixed_ = true, shiftToggle_ = true, fullwidthPunct_ = true, learn_ = true, dynamic_ = true;
   bool wubiAutoCommit_ = true, aiEnabled_ = true;
+  bool sentenceModel_ = true;
+  KeyChord composeKey_ = ParseKeyChord(L"Tab");
   FuzzyRules fuzzy_;
 
   // 状态

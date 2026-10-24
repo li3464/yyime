@@ -128,39 +128,6 @@ bool AppsUseDarkTheme() {
   return v == 0;
 }
 
-// "Ctrl+Alt+Space" 这样的写法
-void ParseHotkey(const std::wstring& spec, UINT* vk, bool* ctrl, bool* alt, bool* shift) {
-  *vk = 0;
-  *ctrl = *alt = *shift = false;
-  std::wstring s;
-  for (wchar_t c : spec) s += (c >= L'A' && c <= L'Z') ? wchar_t(c + 32) : c;
-  size_t i = 0;
-  while (i <= s.size()) {
-    size_t j = s.find(L'+', i);
-    if (j == std::wstring::npos) j = s.size();
-    std::wstring t = s.substr(i, j - i);
-    while (!t.empty() && t.front() == L' ') t.erase(0, 1);
-    while (!t.empty() && t.back() == L' ') t.pop_back();
-    if (t == L"ctrl" || t == L"control") *ctrl = true;
-    else if (t == L"alt") *alt = true;
-    else if (t == L"shift") *shift = true;
-    else if (t == L"space") *vk = VK_SPACE;
-    else if (t == L"tab") *vk = VK_TAB;
-    else if (t == L"enter") *vk = VK_RETURN;
-    else if (t == L"`") *vk = VK_OEM_3;
-    else if (t == L";") *vk = VK_OEM_1;
-    else if (t == L"/") *vk = VK_OEM_2;
-    else if (t == L".") *vk = VK_OEM_PERIOD;
-    else if (t.size() == 1 && t[0] >= L'a' && t[0] <= L'z') *vk = UINT(t[0] - 32);
-    else if (t.size() == 1 && t[0] >= L'0' && t[0] <= L'9') *vk = UINT(t[0]);
-    else if (t.size() >= 2 && t[0] == L'f') {
-      int n = _wtoi(t.c_str() + 1);
-      if (n >= 1 && n <= 12) *vk = UINT(VK_F1 + n - 1);
-    }
-    i = j + 1;
-  }
-}
-
 enum MenuId : UINT {
   kMenuToggle = 1,
   kMenuVertical,
@@ -168,6 +135,7 @@ enum MenuId : UINT {
   kMenuOpenConfig,
   kMenuOpenPhrases,
   kMenuOpenDir,
+  kMenuSettings,
   kMenuSchemeBase = 100,
   kMenuThemeBase = 200,
 };
@@ -445,14 +413,21 @@ void TextService::SyncConfig() {
   if (cfg != cfg_) {
     cfg_ = cfg;
     session_.ApplyConfig(*cfg_);
-    ParseHotkey(cfg_->aiHotkey, &hotkeyVk_, &hotkeyCtrl_, &hotkeyAlt_, &hotkeyShift_);
+    aiHotkey_ = ParseKeyChord(cfg_->aiHotkey);
+    translateKey_ = ParseKeyChord(cfg_->translateHotkey);
+    settingsKey_ = ParseKeyChord(cfg_->settingsHotkey);
+    punctKey_ = ParseKeyChord(cfg_->punctHotkey);
     styleDirty = true;
   }
   if (styleDirty) ApplyStyle();
 }
 
 void TextService::ApplyStyle() {
-  if (candWnd_ && cfg_) candWnd_->SetStyle(cfg_->ResolveTheme(systemDark_), cfg_->fontFace, cfg_->fontSize);
+  if (candWnd_ && cfg_) {
+    Theme theme = cfg_->ResolveTheme(systemDark_);
+    if (!cfg_->characterArt) theme.artwork.clear();
+    candWnd_->SetStyle(theme, cfg_->fontFace, cfg_->fontSize);
+  }
 }
 
 // ---------------------------------------------------------------- 文档焦点
@@ -521,8 +496,9 @@ bool TextService::IsKeyboardDisabled(ITfContext* pic) const {
 }
 
 bool TextService::MatchHotkey(const KeyEvent& k) const {
-  return hotkeyVk_ != 0 && k.vk == hotkeyVk_ && k.ctrl == hotkeyCtrl_ && k.alt == hotkeyAlt_ &&
-         k.shift == hotkeyShift_ && cfg_ && cfg_->aiEnabled;
+  if (!cfg_ || session_.composing()) return false;
+  auto match = [&](const KeyChord& chord) { return chord.Matches(k.vk, k.ctrl, k.alt, k.shift); };
+  return match(settingsKey_) || match(punctKey_) || (cfg_->aiEnabled && (match(aiHotkey_) || match(translateKey_)));
 }
 
 STDMETHODIMP TextService::OnSetFocus(BOOL) { return S_OK; }
@@ -565,10 +541,13 @@ STDMETHODIMP TextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM lPara
     lastContext_ = pic;
     lastContext_->AddRef();
   }
+  SyncConfig();
   KeyEvent k = MakeKeyEvent(wParam);
   if (MatchHotkey(k) && !session_.composing()) {
     *eaten = TRUE;
-    StartAiPanel(pic);
+    if (settingsKey_.Matches(k.vk, k.ctrl, k.alt, k.shift)) OpenSettings();
+    else if (punctKey_.Matches(k.vk, k.ctrl, k.alt, k.shift)) OnMenuCommand(kMenuPunct);
+    else StartAiPanel(pic, translateKey_.Matches(k.vk, k.ctrl, k.alt, k.shift));
     return S_OK;
   }
   if (!session_.TestKeyDown(k)) return S_OK;
@@ -933,10 +912,11 @@ static AiRequest BaseAiRequest(const Config& cfg) {
   req.model = cfg.aiModel;
   req.proxy = cfg.aiProxy;
   req.timeoutMs = cfg.aiTimeoutMs;
+  req.targetLanguage = cfg.translateTarget;
   return req;
 }
 
-static const wchar_t kNoKey[] = L"AI：还没填 API key（右键任务栏的 中/英 → 打开设置文件）";
+static const wchar_t kNoKey[] = L"AI：还没填 API key（右键任务栏的 中/英 → 设置 → AI 与翻译）";
 
 void TextService::StartAiCompose(ITfContext* pic) {
   if (!cfg_ || !candWnd_) return;
@@ -960,16 +940,18 @@ void TextService::StartAiCompose(ITfContext* pic) {
   if (FAILED(hr)) StartAiRequest(req, notify, CandidateWindow::kMsgAiDone, id);
 }
 
-void TextService::StartAiPanel(ITfContext* pic) {
+void TextService::StartAiPanel(ITfContext* pic, bool translate) {
   if (!cfg_ || !candWnd_ || !pic) return;
   HWND notify = candWnd_->hwnd();
-  RequestEdit(pic, TF_ES_READ | TF_ES_ASYNCDONTCARE, [this, pic, notify](TfEditCookie ec) {
+  RequestEdit(pic, TF_ES_READ | TF_ES_ASYNCDONTCARE, [this, pic, notify, translate](TfEditCookie ec) {
     std::wstring sel = ReadSelection(ec, pic);
-    AiMode mode = sel.empty() ? AiMode::Continue : AiMode::Polish;
+    AiMode mode = translate ? AiMode::Translate : sel.empty() ? AiMode::Continue : AiMode::Polish;
     int id = session_.BeginAiPanel(mode);
     std::wstring ctx = ReadTextBefore(ec, pic, 200);
     if (cfg_->aiKey.empty()) {
       session_.SetAiResult(id, {}, kNoKey);
+    } else if (mode == AiMode::Translate && sel.empty()) {
+      session_.SetAiResult(id, {}, L"翻译：请先选中需要翻译的文字，再按翻译快捷键");
     } else if (mode == AiMode::Continue && ctx.empty()) {
       session_.SetAiResult(id, {}, L"AI：这里读不到前文，先选中一段文字再按");
     } else {
@@ -977,7 +959,8 @@ void TextService::StartAiPanel(ITfContext* pic) {
       req.mode = mode;
       req.selection = sel;
       req.context = ctx;
-      StartAiRequest(req, notify, CandidateWindow::kMsgAiDone, id);
+      if (!StartAiRequest(req, notify, CandidateWindow::kMsgAiDone, id))
+        session_.SetAiResult(id, {}, L"AI：请求启动失败，请重试");
     }
     UpdateCandidateWindow(ec, pic);
     return S_OK;
@@ -1031,7 +1014,7 @@ std::wstring TextService::ReadSelection(TfEditCookie ec, ITfContext* pic) {
 
 // ---------------------------------------------------------------- 右键菜单
 
-void TextService::ShowMenu(POINT pt) {
+void TextService::ShowMenu(POINT pt, HWND menuOwner) {
   SyncConfig();
   if (!cfg_) return;
   HMENU menu = CreatePopupMenu();
@@ -1052,16 +1035,35 @@ void TextService::ShowMenu(POINT pt) {
   AppendMenuW(menu, MF_STRING | (cfg_->vertical ? MF_CHECKED : 0), kMenuVertical, L"竖排候选");
   AppendMenuW(menu, MF_STRING | (cfg_->fullwidthPunct ? MF_CHECKED : 0), kMenuPunct, L"中文标点");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+  AppendMenuW(menu, MF_STRING, kMenuSettings, L"设置…");
   AppendMenuW(menu, MF_STRING, kMenuOpenConfig, L"打开设置文件…");
   AppendMenuW(menu, MF_STRING, kMenuOpenPhrases, L"编辑自定义短语…");
   AppendMenuW(menu, MF_STRING, kMenuOpenDir, L"打开用户文件夹");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"yy输入法 1.0");
-  HWND owner = contextWnd_ ? contextWnd_ : (candWnd_ ? candWnd_->hwnd() : nullptr);
-  UINT cmd = UINT(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_BOTTOMALIGN,
+  HWND owner = menuOwner ? menuOwner : (contextWnd_ ? GetAncestor(contextWnd_, GA_ROOT) : nullptr);
+  if (!owner || !IsWindow(owner)) { DestroyMenu(menu); return; }
+  SetForegroundWindow(owner);
+  UINT cmd = UINT(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_BOTTOMALIGN | TPM_RIGHTBUTTON,
                                    pt.x, pt.y, owner, nullptr));
+  // Windows 托盘菜单要求此消息，否则第二次显示可能立即关闭。
+  if (IsWindow(owner)) PostMessageW(owner, WM_NULL, 0, 0);
   DestroyMenu(menu);
   if (cmd) OnMenuCommand(cmd);
+}
+
+void TextService::OpenSettings() {
+  wchar_t module[MAX_PATH] = {};
+  GetModuleFileNameW(g_hInst, module, MAX_PATH);
+  const auto dir = DirName(module);
+  for (const auto& parent : {dir, DirName(dir)}) {
+    std::wstring exe = parent + L"\\yyime-settings.exe";
+    if (!FileExists(exe)) continue;
+    std::wstring args = L"\"" + Engine::Get().configPath() + L"\"";
+    auto result = ShellExecuteW(nullptr, L"open", exe.c_str(), args.c_str(), parent.c_str(), SW_SHOWNORMAL);
+    if (reinterpret_cast<INT_PTR>(result) > 32) return;
+  }
+  MessageBoxW(nullptr, L"找不到设置程序，请重新安装完整的新版安装包。", L"yy输入法", MB_OK | MB_ICONINFORMATION);
 }
 
 void TextService::OnMenuCommand(UINT id) {
@@ -1090,6 +1092,8 @@ void TextService::OnMenuCommand(UINT id) {
     save("ui", "layout", cfg_->vertical ? "horizontal" : "vertical");
   } else if (id == kMenuPunct && cfg_) {
     save("general", "fullwidth_punct", cfg_->fullwidthPunct ? "false" : "true");
+  } else if (id == kMenuSettings) {
+    OpenSettings();
   } else if (id == kMenuOpenConfig) {
     open(path);
   } else if (id == kMenuOpenPhrases) {

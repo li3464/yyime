@@ -8,6 +8,7 @@
 
 #include "globals.h"
 #include "text_service.h"
+#include "../engine/util.h"
 
 namespace yy {
 
@@ -92,8 +93,44 @@ HICON MakeModeIcon(bool chinese) {
 LangBarButton::LangBarButton(TextService* owner) : owner_(owner) { DllAddRef(); }
 
 LangBarButton::~LangBarButton() {
+  Detach();
   if (sink_) sink_->Release();
   DllRelease();
+}
+
+void LangBarButton::Detach() {
+  owner_ = nullptr;
+  if (menuWnd_) {
+    // 停用可能发生在菜单的嵌套消息循环里。
+    PostMessageW(menuWnd_, WM_CANCELMODE, 0, 0);
+    SetWindowLongPtrW(menuWnd_, GWLP_USERDATA, 0);
+    if (menuWndProc_) SetWindowLongPtrW(menuWnd_, GWLP_WNDPROC, LONG_PTR(menuWndProc_));
+    DestroyWindow(menuWnd_);
+    menuWnd_ = nullptr;
+  }
+}
+
+LRESULT CALLBACK LangBarButton::MenuWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+  auto* self = reinterpret_cast<LangBarButton*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+  if (msg == WM_APP + 0x42 && self) {
+    if (!self->owner_ || self->menuOpen_) return 0;
+    self->AddRef();
+    auto* owner = self->owner_;
+    owner->AddRef();
+    self->menuOpen_ = true;
+    POINT pt{LONG(INT_PTR(wp)), LONG(INT_PTR(lp))};
+    SetWindowPos(hwnd, nullptr, pt.x, pt.y, 1, 1, SWP_NOZORDER | SWP_NOACTIVATE);
+    // 使用可激活的独立窗口，不能使用 NOACTIVATE 的候选框或失焦的输入控件。
+    ShowWindow(hwnd, SW_SHOWNOACTIVATE);
+    owner->ShowMenu(pt, hwnd);
+    if (IsWindow(hwnd)) ShowWindow(hwnd, SW_HIDE);
+    self->menuOpen_ = false;
+    owner->Release();
+    self->Release();
+    return 0;
+  }
+  return self && self->menuWndProc_ ? CallWindowProcW(self->menuWndProc_, hwnd, msg, wp, lp)
+                                   : DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 STDMETHODIMP LangBarButton::QueryInterface(REFIID riid, void** ppv) {
@@ -146,7 +183,18 @@ STDMETHODIMP LangBarButton::GetTooltipString(BSTR* pbstrToolTip) {
 STDMETHODIMP LangBarButton::OnClick(TfLBIClick click, POINT pt, const RECT*) {
   if (!owner_) return S_OK;
   if (click == TF_LBI_CLK_LEFT) owner_->ToggleChinese();
-  else if (click == TF_LBI_CLK_RIGHT) owner_->ShowMenu(pt);
+  else if (click == TF_LBI_CLK_RIGHT) {
+    if (!menuWnd_) {
+      menuWnd_ = CreateWindowExW(WS_EX_TOOLWINDOW, L"STATIC", L"yy输入法菜单", WS_POPUP,
+                                pt.x, pt.y, 1, 1, nullptr, nullptr, g_hInst, nullptr);
+      if (!menuWnd_) return HRESULT_FROM_WIN32(GetLastError());
+      SetWindowLongPtrW(menuWnd_, GWLP_USERDATA, LONG_PTR(this));
+      menuWndProc_ = reinterpret_cast<WNDPROC>(SetWindowLongPtrW(menuWnd_, GWLP_WNDPROC, LONG_PTR(MenuWndProc)));
+    }
+    // 先结束托盘的 COM 回调，让系统释放点击/焦点处理，再进入菜单消息循环。
+    if (!PostMessageW(menuWnd_, WM_APP + 0x42, WPARAM(INT_PTR(pt.x)), LPARAM(INT_PTR(pt.y))))
+      return HRESULT_FROM_WIN32(GetLastError());
+  }
   return S_OK;
 }
 

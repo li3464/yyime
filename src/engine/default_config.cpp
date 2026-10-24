@@ -32,6 +32,8 @@ wubi_auto_commit = true
 fuzzy =
 ; 调试日志（写到 %TEMP%\yyime.log），出问题时再打开
 debug_log = false
+; 使用本地语言模型优化整句，不联网
+sentence_model = true
 
 [ui]
 ; 皮肤：auto 跟随系统深浅色 / light 晴空 / dark 夜幕 / sakura 樱花 / mint 薄荷 / ink 水墨 / violet 星紫 / amber 琥珀
@@ -42,6 +44,8 @@ font = Microsoft YaHei UI
 font_size = 17
 ; 候选框上方显示正在打的拼音
 preedit_in_window = true
+; AI 娘主题的角色装饰；关闭后只保留配色
+character_art = true
 
 [ai]
 ; AI 补全/润色，默认接 DeepSeek（别家兼容 OpenAI 格式的接口也行，改 base_url 和 model）
@@ -57,6 +61,13 @@ timeout_ms = 20000
 compose_key = Tab
 ; 没在打字时按这个键：选中了文字就润色，没选中就照着前文往下写
 hotkey = Ctrl+Alt+Space
+; 选中文字后翻译；auto 为中文译英语、其他语言译简体中文
+translate_hotkey = Ctrl+Alt+T
+translate_target = auto
+
+[hotkeys]
+settings = Ctrl+Alt+O
+punctuation = Ctrl+.
 
 ; ---- 自己配皮肤：去掉下面各行开头的 ; ，再把上面 [ui] 里的 theme 改成 mine ----
 ;[theme.mine]

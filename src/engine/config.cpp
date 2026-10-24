@@ -1,6 +1,7 @@
 #include "config.h"
 
 #include <cstdlib>
+#include <cmath>
 #include <cstring>
 
 #include "util.h"
@@ -75,10 +76,11 @@ void ApplyThemeKey(Theme* t, const std::string& key, const std::string& value) {
 
 // 去掉值后面用空白隔开的 ; 或 # 注释
 std::string StripComment(const std::string& v) {
-  for (size_t i = 1; i < v.size(); ++i) {
-    if ((v[i] == ';' || v[i] == '#') && (v[i - 1] == ' ' || v[i - 1] == '\t')) return Trim(v.substr(0, i));
+  std::string trimmed = Trim(v);
+  for (size_t i = 1; i < trimmed.size(); ++i) {
+    if ((trimmed[i] == ';' || trimmed[i] == '#') && (trimmed[i - 1] == ' ' || trimmed[i - 1] == '\t')) return Trim(trimmed.substr(0, i));
   }
-  return Trim(v);
+  return trimmed;
 }
 
 }  // namespace
@@ -99,7 +101,47 @@ std::vector<Theme> BuiltinThemes() {
                         0xFFFFFFFF, 0xFFF0ABFC));
   v.push_back(MakeTheme(L"amber", L"琥珀", 0xFFFFFBEB, 0xFFFDE68A, 0xFF451A03, 0xFFB45309, 0xFFD97706, 0xFFF59E0B,
                         0xFF451A03, 0xFFB91C1C));
+  auto character = [&](const wchar_t* id, const wchar_t* label, const wchar_t* description,
+                       uint32_t bg, uint32_t border, uint32_t text, uint32_t muted, uint32_t accent) {
+    auto t = MakeTheme(id, label, bg, border, text, muted, accent, accent, 0xFFFFFFFF, accent);
+    // 装饰色保持轻盈；首选词底色加深到白字清晰可读。
+    auto channel = [](unsigned c) { double x = c / 255.0; return x <= .04045 ? x / 12.92 : std::pow((x + .055) / 1.055, 2.4); };
+    unsigned r = (accent >> 16) & 255, g = (accent >> 8) & 255, b = accent & 255;
+    while (1.05 / (.2126 * channel(r) + .7152 * channel(g) + .0722 * channel(b) + .05) < 4.5) {
+      r = r * 95 / 100; g = g * 95 / 100; b = b * 95 / 100;
+    }
+    t.highlightBg = 0xFF000000 | (r << 16) | (g << 8) | b;
+    t.artwork = std::wstring(id) + L".png";
+    t.description = description;
+    t.cornerRadius = 16;
+    v.push_back(std::move(t));
+  };
+  character(L"deepseek", L"DeepSeek · 深海鲸语", L"蓝发鲸鱼娘 / 海盐蓝与奶白", 0xFFF1F7FF, 0xFFCCDDF8, 0xFF18314F, 0xFF7086A4, 0xFF4779D8);
+  character(L"gpt", L"GPT · 白龙绮梦", L"白龙少女 / 薰衣草紫与象牙白", 0xFFF8F5FF, 0xFFE0D8F3, 0xFF433556, 0xFF9B8CAD, 0xFF9275CC);
+  character(L"claude", L"Claude · 杏橙书房", L"橙发书卷娘 / 杏橙与暖奶油", 0xFFFFF7F0, 0xFFF0D9C8, 0xFF513629, 0xFFAD8A74, 0xFFC57853);
+  character(L"gemini", L"Gemini · 双子星河", L"星猫少女 / 紫蓝星光", 0xFFF4F1FF, 0xFFDCD4F7, 0xFF342653, 0xFF9384B6, 0xFF7860D9);
+  character(L"qwen", L"Qwen · 千问流云", L"国风执扇娘 / 青瓷与藤紫", 0xFFF7F5FF, 0xFFDCD7F2, 0xFF393054, 0xFF978BAD, 0xFF8063C8);
+  character(L"glm", L"GLM · 墨羽智谱", L"黑发红瞳少女 / 墨白与冰蓝", 0xFFF4F7FA, 0xFFD6DFE8, 0xFF24394A, 0xFF8295A4, 0xFF547F9F);
+  character(L"minimax", L"MiniMax · 海螺珊瑚", L"海螺创作娘 / 珊瑚橙与桃白", 0xFFFFF4F1, 0xFFF6D7CD, 0xFF56352E, 0xFFB28B7F, 0xFFD97D65);
+  character(L"zcode", L"Zcode · 蒙眼蓝图", L"蒙眼白狐工程师 / 雪白与浅蓝", 0xFFF3F8FF, 0xFFD1DEF3, 0xFF29415C, 0xFF8094B0, 0xFF668ACC);
+  character(L"kimi", L"Kimi · 月光旅人", L"银发月光娘 / 午夜蓝与月白", 0xFF20253E, 0xFF454C72, 0xFFEEF0FF, 0xFF949EC4, 0xFF7D8DD0);
+  character(L"grok", L"Grok · 绯夜小恶魔", L"金发小恶魔 / 绯红与柔黑", 0xFF2B2029, 0xFF553847, 0xFFFFF0F5, 0xFFB58B9D, 0xFFC56785);
   return v;
+}
+
+std::wstring ThemeAssetPath(const Theme& theme) {
+  if (theme.artwork.empty()) return {};
+  HMODULE module = nullptr;
+  GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+                     reinterpret_cast<LPCWSTR>(&ThemeAssetPath), &module);
+  wchar_t buffer[MAX_PATH] = {};
+  GetModuleFileNameW(module, buffer, MAX_PATH);
+  auto directory = DirName(buffer);
+  for (const auto& folder : {directory, DirName(directory), DirName(DirName(directory))}) {
+    auto path = folder + L"\\themes\\" + theme.artwork;
+    if (FileExists(path)) return path;
+  }
+  return {};
 }
 
 const Theme& Config::ResolveTheme(bool systemDark) const {
@@ -145,12 +187,14 @@ bool LoadConfig(const std::wstring& path, Config* cfg) {
       else if (key == "wubi_auto_commit") cfg->wubiAutoCommit = ParseBool(value, cfg->wubiAutoCommit);
       else if (key == "fuzzy") cfg->fuzzy = wv;
       else if (key == "debug_log") cfg->debugLog = ParseBool(value, cfg->debugLog);
+      else if (key == "sentence_model") cfg->sentenceModel = ParseBool(value, cfg->sentenceModel);
     } else if (section == "ui") {
       if (key == "theme") cfg->themeName = Utf8ToWide(Lower(value));
       else if (key == "layout") cfg->vertical = Lower(value) == "vertical" || value == "竖排";
       else if (key == "font") cfg->fontFace = wv;
       else if (key == "font_size") cfg->fontSize = std::max(10.0f, std::min(40.0f, float(atof(value.c_str()))));
       else if (key == "preedit_in_window") cfg->preeditInWindow = ParseBool(value, cfg->preeditInWindow);
+      else if (key == "character_art") cfg->characterArt = ParseBool(value, cfg->characterArt);
     } else if (section == "ai") {
       if (key == "enabled") cfg->aiEnabled = ParseBool(value, cfg->aiEnabled);
       else if (key == "base_url") cfg->aiBaseUrl = wv;
@@ -160,6 +204,11 @@ bool LoadConfig(const std::wstring& path, Config* cfg) {
       else if (key == "timeout_ms") cfg->aiTimeoutMs = std::max(3000, atoi(value.c_str()));
       else if (key == "compose_key") cfg->aiComposeKey = wv;
       else if (key == "hotkey") cfg->aiHotkey = wv;
+      else if (key == "translate_hotkey") cfg->translateHotkey = wv;
+      else if (key == "translate_target") cfg->translateTarget = wv;
+    } else if (section == "hotkeys") {
+      if (key == "settings") cfg->settingsHotkey = wv;
+      else if (key == "punctuation") cfg->punctHotkey = wv;
     } else if (section.rfind("theme.", 0) == 0 && section.size() > 6) {
       std::wstring name = Utf8ToWide(section.substr(6));
       Theme* t = nullptr;
@@ -177,10 +226,8 @@ bool LoadConfig(const std::wstring& path, Config* cfg) {
   return true;
 }
 
-bool SaveConfigValue(const std::wstring& path, const std::string& section, const std::string& key,
-                     const std::string& value) {
-  std::string data;
-  if (!ReadTextFile(path, &data)) data = DefaultConfigText();
+static std::string ChangeValue(const std::string& data, const std::string& section, const std::string& key,
+                               const std::string& value) {
   std::vector<std::string> lines;
   size_t pos = 0;
   while (pos < data.size()) {
@@ -222,7 +269,31 @@ bool SaveConfigValue(const std::wstring& path, const std::string& section, const
   }
   std::string out;
   for (auto& l : lines) out += l + "\r\n";
-  return WriteTextFile(path, out);
+  return out;
+}
+
+bool SaveConfigValues(const std::wstring& path, const std::vector<ConfigChange>& changes) {
+  for (const auto& change : changes)
+    if (change.value.find_first_of("\r\n") != std::string::npos) return false;
+  HANDLE lock = CreateFileW((path + L".lock").c_str(), GENERIC_WRITE, 0, nullptr, OPEN_ALWAYS,
+                            FILE_ATTRIBUTE_HIDDEN, nullptr);
+  if (lock == INVALID_HANDLE_VALUE) return false;
+  std::string data;
+  bool ok = ReadTextFile(path, &data);
+  if (!ok && !FileExists(path)) { data = DefaultConfigText(); ok = true; }
+  for (const auto& change : changes)
+    if (ok) data = ChangeValue(data, change.section, change.key, change.value);
+  std::wstring temp = path + L".tmp." + std::to_wstring(GetCurrentProcessId());
+  if (ok) ok = WriteTextFile(temp, data);
+  if (ok) ok = MoveFileExW(temp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != 0;
+  if (!ok) DeleteFileW(temp.c_str());
+  CloseHandle(lock);
+  return ok;
+}
+
+bool SaveConfigValue(const std::wstring& path, const std::string& section, const std::string& key,
+                     const std::string& value) {
+  return SaveConfigValues(path, {{section, key, value}});
 }
 
 }  // namespace yy

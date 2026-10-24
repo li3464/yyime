@@ -96,6 +96,7 @@ void CandidateWindow::Destroy() {
   visible_ = false;
   ReleaseFormats();
   SafeRelease(rt_);
+  SafeRelease(characterBitmap_);
   SafeRelease(d2d_);
   if (memDC_) {
     if (oldBmp_) SelectObject(memDC_, oldBmp_);
@@ -118,6 +119,10 @@ void CandidateWindow::UnregisterWindowClass() {
 }
 
 void CandidateWindow::SetStyle(const Theme& theme, const std::wstring& font, float fontSize) {
+  if (theme.artwork != theme_.artwork) {
+    SafeRelease(characterBitmap_);
+    artwork_.Load(ThemeAssetPath(theme), 192);
+  }
   theme_ = theme;
   if (font != font_ || fontSize != fontSize_) {
     font_ = font;
@@ -287,6 +292,9 @@ void CandidateWindow::Render(const RECT& caret) {
     contentH = (boxes.empty() ? y - auxGap : rowBottom) + padY;
   }
   contentW = std::max(contentW, 60 * s);
+  const float characterW = artwork_.pixels.empty() ? 0 : 78 * s;
+  contentW += characterW;
+  if (characterW > 0) contentH = std::max(contentH, 86 * s);
   const int W = int(std::ceil(contentW + 2 * margin));
   const int H = int(std::ceil(contentH + 2 * margin));
 
@@ -369,10 +377,10 @@ void CandidateWindow::Render(const RECT& caret) {
       if (paging && prevL && nextL) {
         float ax, ay;
         if (vertical) {
-          ax = panel.right - padX - arrowsW + 10 * s;
+          ax = panel.right - characterW - padX - arrowsW + 10 * s;
           ay = panel.bottom - padY - pm.h;
         } else {
-          ax = panel.right - padX - arrowsW + 10 * s;
+          ax = panel.right - characterW - padX - arrowsW + 10 * s;
           ay = boxes.empty() ? panel.top + padY : boxes[0].rect.top + margin + ((boxes[0].rect.bottom - boxes[0].rect.top) - pm.h) / 2;
         }
         brush->SetColor(Color(theme_.index, view_.hasPrev ? 1.0f : 0.35f));
@@ -380,10 +388,25 @@ void CandidateWindow::Render(const RECT& caret) {
         brush->SetColor(Color(theme_.index, view_.hasNext ? 1.0f : 0.35f));
         rt_->DrawTextLayout({ax + pm.w + 6 * s, ay}, nextL, brush);
       }
+      if (characterW > 0) {
+        if (!characterBitmap_) {
+          auto properties = D2D1::BitmapProperties(D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+          rt_->CreateBitmap(D2D1::SizeU(artwork_.width, artwork_.height), artwork_.pixels.data(), artwork_.width * 4,
+                             properties, &characterBitmap_);
+        }
+        if (characterBitmap_) {
+          float artH = std::min(contentH - 8 * s, 100 * s);
+          float artW = artH * float(artwork_.width) / float(artwork_.height);
+          if (artW > characterW - 2 * s) { artW = characterW - 2 * s; artH = artW * artwork_.height / artwork_.width; }
+          float left = panel.right - characterW + (characterW - artW) / 2;
+          rt_->DrawBitmap(characterBitmap_, D2D1::RectF(left, panel.bottom - artH - 4 * s, left + artW, panel.bottom - 4 * s),
+                           1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+        }
+      }
       brush->Release();
     }
     HRESULT hr = rt_->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET) SafeRelease(rt_);
+    if (hr == D2DERR_RECREATE_TARGET) { SafeRelease(characterBitmap_); SafeRelease(rt_); }
     POINT dst{wx, wy}, src{0, 0};
     SIZE size{W, H};
     BLENDFUNCTION bf{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};

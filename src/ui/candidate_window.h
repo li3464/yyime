@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "../engine/config.h"
+#include "artwork.h"
 
 namespace yy {
 
@@ -76,6 +77,8 @@ class CandidateWindow {
 
   ID2D1Factory* d2d_ = nullptr;
   ID2D1DCRenderTarget* rt_ = nullptr;
+  ID2D1Bitmap* characterBitmap_ = nullptr;
+  Artwork artwork_;
   IDWriteTextFormat* fmtText_ = nullptr;
   IDWriteTextFormat* fmtSmall_ = nullptr;
   IDWriteTextFormat* fmtComment_ = nullptr;

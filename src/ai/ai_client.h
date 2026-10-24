@@ -15,6 +15,7 @@ struct AiRequest {
   std::wstring guess;      // 打字中：输入法自己给的第一个候选
   std::wstring context;    // 光标前面的文字
   std::wstring selection;  // 选中的文字（润色）
+  std::wstring targetLanguage = L"auto";
   std::wstring baseUrl, apiKey, model, proxy;
   int timeoutMs = 20000;
 };
