@@ -16,6 +16,10 @@
           v 加符号码出特殊符号：fh 常用 jt 箭头 sx 数学 dw 单位 xl 希腊 xh 序号
           bd 标点 jh 几何 bq 括号 py 带调拼音；只打 v 会提示这些
   emoji：打 kaixin、haha、mao 时候选里跟着 😄 🐱，设置里可以关
+  生僻字：不认识的字用 u 开头来找，候选旁边标着读音
+          拆字：u + 各部分的拼音，uhuohuohuo → 焱，umumumu → 森，unvzi → 好
+          笔画：u + 笔画，h 横 s 竖 p 撇 n 点(捺) z 折，uhh → 二
+          全拼也能直接打出四万多个生僻字，排在常用字后面；设置里可以关
   鼠标点候选也能选，滚轮翻页
 
 【AI】（先在设置文件里填 DeepSeek 的 api_key）
@@ -33,7 +37,7 @@
   AI 与翻译：接口、模型、密钥、代理、超时、翻译目标语言
   快捷键：查看和修改 AI 整句、润色/续写、翻译、设置、标点切换
   支持 Ctrl/Alt/Shift 组合键及 F1–F24，空值停用，重复或无效的键无法保存
-  单按 Shift 的开关在输入页。空格/数字选词、[ ] 以词定字、回车、Esc 为固定操作
+  单按 Shift 的开关在输入页。空格/数字选词、[ ] 以词定字、v 和 u 模式、回车、Esc 为固定操作
   Ctrl+. 默认切换中英文标点；Win+空格切换输入法由 Windows 管理
   保存后新设置在下次按键时读取（最长约 1 秒），不会清空已有用户词库
 
@@ -58,9 +62,11 @@
 【词库来源】
   拼音、英文、emoji：雾凇拼音 rime-ice（GPL-3.0）https://github.com/iDvel/rime-ice
   五笔86：rime-wubi（LGPL-3.0）https://github.com/rime/rime-wubi
+  生僻字：拆字 rime-radical-pinyin（GPL-3.0）、笔画 rime-stroke（LGPL-3.0）、读音 pinyin-data（MIT）
   本地语言模型与算法参考：见 licenses\NOTICE.txt 和附带许可证
 
 【致谢】
-  感谢雾凇拼音 rime-ice、rime-wubi、rime-octagram 这些开源项目提供词库和整句模型！
+  感谢雾凇拼音 rime-ice、rime-wubi、rime-octagram、rime-radical-pinyin、rime-stroke、pinyin-data
+  这些开源项目提供词库、整句模型和生僻字数据！
   AI 娘皮肤和图标的角色形象来自 B 站画师 ZipZipPipe，已获作者授权使用，感谢！
   B 站主页：https://space.bilibili.com/4168597

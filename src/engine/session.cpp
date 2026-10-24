@@ -51,6 +51,7 @@ void InputSession::ApplyConfig(const Config& c) {
   aiEnabled_ = c.aiEnabled;
   sentenceModel_ = c.sentenceModel;
   emoji_ = c.emoji;
+  rare_ = c.rareChars;
   composeKey_ = ParseKeyChord(c.aiComposeKey);
   fuzzy_ = FuzzyRules::Parse(c.fuzzy);
 }
@@ -397,12 +398,15 @@ void InputSession::Refresh() {
   const Dictionaries& d = eng.dicts();
   if (VMode()) {
     FillVMode(rest);
+  } else if (UMode()) {
+    FillUMode(rest);
   } else if (scheme_ == Scheme::Wubi86) {
     if (rest[0] == 'z') {
       // 五笔里打 z 开头：用拼音找字，后面标上五笔编码
       if (rest.size() > 1) {
         ConvertOptions opt;
         opt.englishMixed = false;
+        opt.rareChars = rare_;
         ConvertPinyin(d, std::string_view(rest).substr(1), opt, &conv_);
         for (auto& c : conv_.cands) {
           c.consumed += 1;
@@ -422,12 +426,13 @@ void InputSession::Refresh() {
     opt.englishMixed = englishMixed_;
     opt.user = user.get();
     opt.useGrammar = sentenceModel_;
+    opt.rareChars = rare_;
     std::wstring selectedContext = SelectedText();
     opt.context = selectedContext;
     ConvertPinyin(d, rest, opt, &conv_);
   }
   cands_ = conv_.cands;
-  if (emoji_ && !VMode()) AddEmoji(rest.size());
+  if (emoji_ && !VMode() && !UMode()) AddEmoji(rest.size());
 
   if (selected_.empty()) {
     std::vector<Phrase> ph = eng.phrases().Lookup(rest);
@@ -459,6 +464,41 @@ void InputSession::Refresh() {
 
 bool InputSession::VMode() const {
   return scheme_ == Scheme::Pinyin && selected_.empty() && !input_.empty() && input_[0] == 'v';
+}
+
+bool InputSession::UMode() const {
+  // 全拼里没有 u 开头的音节，拿来当生僻字的开关；双拼的 u 是 sh，不占用
+  return rare_ && scheme_ == Scheme::Pinyin && selected_.empty() && !input_.empty() && input_[0] == 'u';
+}
+
+void InputSession::FillUMode(const std::string& rest) {
+  conv_.display = rest;
+  std::string body;
+  for (char c : std::string_view(rest).substr(1))
+    if (c != '\'') body += c;
+  if (body.empty()) {
+    hint_ = UModeHint();
+    return;
+  }
+  Engine& eng = Engine::Get();
+  std::vector<RareHit> hits = FindRare(eng.ChaiziTable(), eng.StrokeTable(), body, 300);
+  // user、update 这种 u 开头的英文单词照样能打：排在整个对上的生僻字后面
+  Conversion english;
+  if (englishMixed_ && rest.find('\'') == std::string::npos) AddEnglish(eng.dicts(), rest, false, &english);
+  size_t exactEnd = 0;
+  while (exactEnd < hits.size() && hits[exactEnd].exact) ++exactEnd;
+  auto add = [&](RareHit& h) {
+    Candidate c;
+    c.text = std::move(h.text);
+    c.comment = std::move(h.reading);
+    c.consumed = int(rest.size());
+    c.kind = CandKind::Custom;
+    conv_.cands.push_back(std::move(c));
+  };
+  for (size_t i = 0; i < exactEnd; ++i) add(hits[i]);
+  for (auto& c : english.cands) conv_.cands.push_back(std::move(c));
+  for (size_t i = exactEnd; i < hits.size(); ++i) add(hits[i]);
+  if (conv_.cands.empty()) hint_ = L"没找到，换个拆法或者笔画试试";
 }
 
 void InputSession::FillVMode(const std::string& rest) {

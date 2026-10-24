@@ -140,6 +140,30 @@ int wmain(int argc, wchar_t** argv) {
     auto items = extra.PageView().items;
     Check(items.size() > 1 && items[0]->text == L"开心" && items[1]->text == L"😄", "emoji follows word");
     extra.Clear();
+    Keys(extra, "uhuohuohuo");
+    items = extra.PageView().items;
+    Check(!items.empty() && items[0]->text == L"焱" && items[0]->comment.find(L"yàn") == 0, "u-mode chaizi with reading");
+    extra.Clear();
+    Check(Keys(extra, "unvzi1") == L"好" && Keys(extra, "uhh1") == L"二", "u-mode chaizi and strokes");
+    Check(Keys(extra, "user ") == L"user", "u-word still types English");
+    Keys(extra, "u");
+    Check(extra.PageView().items.empty() && !extra.PageView().status.empty(), "u-mode hint");
+    extra.Clear();
+    auto hasQiu = [&](bool rare) {
+      Conversion conv;
+      ConvertOptions o;
+      o.rareChars = rare;
+      ConvertPinyin(Engine::Get().dicts(), "qiu", o, &conv);
+      for (auto& c : conv.cands)
+        if (c.text == L"㐀") return true;
+      return false;
+    };
+    Check(hasQiu(true) && !hasQiu(false), "rare chars in full pinyin follow the switch");
+    ec.rareChars = false; extra.ApplyConfig(ec); Keys(extra, "uhuohuohuo");
+    items = extra.PageView().items;
+    Check(items.empty() || items[0]->text != L"焱", "rare switch off disables u-mode");
+    extra.Clear();
+    ec.rareChars = true;
     ec.emoji = false; extra.ApplyConfig(ec); Keys(extra, "kaixin");
     items = extra.PageView().items;
     Check(items.size() > 1 && items[1]->text != L"😄", "emoji switch off");

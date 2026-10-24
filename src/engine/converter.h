@@ -44,8 +44,12 @@ struct ConvertOptions {
   bool englishMixed = true;
   const UserTrie* user = nullptr;
   bool useGrammar = true;
+  bool rareChars = true;      // 词库里大字表补进来的生僻字（代价 ≥ kRareCost）出不出
   std::wstring_view context;  // 前面已经选好的字，组句时当上文
 };
+
+// 大字表补进来的生僻字的代价从这里起，比所有常用词都大（和 tools/build_dict.py 的 RARE_COST 一致）
+constexpr int kRareCost = 60000;
 
 void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertOptions& opt, Conversion* out);
 void ConvertWubi(const Dictionaries& d, std::string_view input, Conversion* out);

@@ -6,6 +6,7 @@
 - **中英混打**：直接打英文单词也出候选
 - **自己的词**：会记住你选过的词和分几次选出来的词组；支持自定义短语；rq / sj / xq 出日期、时间、星期
 - **小功能**：`[` `]` 以词定字（xianzai 按 `[` 出「现」，按 `]` 出「在」）；v 模式（`v123` 数字转大写/金额，`v1+2*3` 计算，`vjt` `vsx` 等出特殊符号）；词后面跟 emoji（kaixin → 😄，可关）
+- **生僻字**：全拼下 `u` 开头按偏旁拼音拆字（`uhuohuohuo` → 焱、`umumumu` → 森）或按笔画找字（`u` + h 横 s 竖 p 撇 n 点 z 折，`uhh` → 二），候选旁边标读音；全拼也能直接打出四万多个生僻字，排在常用字后面。设置里可关
 - **AI（DeepSeek，可换成别的 OpenAI 兼容接口）**：打拼音时按 Tab 让 AI 组句；选中文字按 Ctrl+Alt+空格 润色；没选中时按同一个键续写
 - **皮肤**：10 款 AI 娘角色皮肤与 7 套经典配色，可跟随系统深浅色，也能在设置文件里自己配；横排/竖排
 
@@ -66,6 +67,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1      # �
 - 拼音、英文、emoji：[雾凇拼音 rime-ice](https://github.com/iDvel/rime-ice)（GPL-3.0）
 - 五笔86：[rime-wubi](https://github.com/rime/rime-wubi)（LGPL-3.0）
 - 整句模型：[rime-octagram-data](https://github.com/lotem/rime-octagram-data)（LGPL-3.0），读取方法参考 [librime-octagram](https://github.com/lotem/librime-octagram)（BSD-3-Clause）
+- 生僻字：大字表来自雾凇拼音；拆字表 [rime-radical-pinyin](https://github.com/mirtlecn/rime-radical-pinyin)（GPL-3.0，经雾凇拼音收录）；笔画表 [rime-stroke](https://github.com/rime/rime-stroke)（LGPL-3.0）；带声调的读音 [pinyin-data](https://github.com/mozillazg/pinyin-data)（MIT）
 
 ## 致谢
 
@@ -74,6 +76,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File scripts\package.ps1      # �
 - [雾凇拼音 rime-ice](https://github.com/iDvel/rime-ice)（iDvel 和贡献者们）：拼音、英文词库和 emoji 对照表
 - [rime-wubi](https://github.com/rime/rime-wubi)（RIME 社区）：五笔86 码表
 - [rime-octagram-data](https://github.com/lotem/rime-octagram-data) 和 [librime-octagram](https://github.com/lotem/librime-octagram)（lotem 佛振）：整句语言模型和读取方法
+- [rime-radical-pinyin](https://github.com/mirtlecn/rime-radical-pinyin)（Mirtle）：部件拆字表
+- [rime-stroke](https://github.com/rime/rime-stroke)（RIME 社区）：五笔画码表
+- [pinyin-data](https://github.com/mozillazg/pinyin-data)（mozillazg）：汉字的带声调读音
 
 AI 娘皮肤和输入法图标里的角色形象来自 B 站画师 **ZipZipPipe**（[B 站主页](https://space.bilibili.com/4168597)）。
 

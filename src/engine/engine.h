@@ -10,6 +10,7 @@
 
 #include "config.h"
 #include "converter.h"
+#include "extras.h"
 #include "phrases.h"
 #include "userdict.h"
 
@@ -39,8 +40,12 @@ class Engine {
   std::string WubiCodeOf(std::wstring_view text);
   // 词 → emoji（data\emoji.txt，第一次用时才读）；没有返回 nullptr
   const std::vector<std::wstring>* EmojiFor(const std::wstring& word);
+  // 生僻字的拆字表、笔画表（data\chaizi.txt、stroke.txt，第一次进 u 模式时才读）；没有文件返回 nullptr
+  const CodeTable* ChaiziTable();
+  const CodeTable* StrokeTable();
 
  private:
+  void LoadRareTables();
   Engine();
   void LoadConfigLocked();
 
@@ -58,6 +63,8 @@ class Engine {
   std::unordered_map<std::wstring, std::string> wubiReverse_;
   std::once_flag emojiOnce_;
   std::unordered_map<std::wstring, std::vector<std::wstring>> emoji_;
+  std::once_flag rareOnce_;
+  CodeTable chaizi_, stroke_;
 };
 
 }  // namespace yy

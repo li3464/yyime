@@ -171,6 +171,7 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
         auto& choices = best[size_t(s)][end];
         int taken = 0;
         for (auto entry = eb; entry != ee && taken < (grammar ? 8 : 1); ++entry, ++taken) {
+          if (!opt.rareChars && entry->cost >= kRareCost) break;  // 按代价排好的，后面都是生僻字
           BestWord bw;
           bw.cost = int(entry->cost) + pen;
           bw.text = t->textOf(*entry);
@@ -295,6 +296,7 @@ void ConvertPinyin(const Dictionaries& d, std::string_view input, const ConvertO
     const int limit = m.penalty == 0 ? INT_MAX : kTopPerNode;
     int taken = 0;
     for (const TrieEntry* p = eb; p && p != ee && taken < limit; ++p, ++taken) {
+      if (!opt.rareChars && p->cost >= kRareCost) break;
       std::wstring_view text = m.trie->textOf(*p);
       if (text.empty()) continue;
       int cost = int(p->cost) + m.penalty;

@@ -36,6 +36,9 @@ debug_log = false
 sentence_model = true
 ; 打“开心”时后面跟着出 😄 这样的 emoji
 emoji = true
+; 生僻字：u 开头按偏旁拼音拆字（uhuohuohuo → 焱）或按笔画找字（u + h横 s竖 p撇 n点 z折），
+; 候选旁边标读音；全拼也能打出四万多个生僻字，排在常用字后面
+rare_chars = true
 
 [ui]
 ; 皮肤：auto 跟随系统深浅色 / light 晴空 / dark 夜幕 / sakura 樱花 / mint 薄荷 / ink 水墨 / violet 星紫 / amber 琥珀

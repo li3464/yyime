@@ -42,6 +42,7 @@ struct Config {
   bool debugLog = false;
   bool sentenceModel = true;
   bool emoji = true;  // 词后面跟着出 emoji
+  bool rareChars = true;  // 生僻字：u 模式拆字/笔画，全拼也能打出大字表里的字
   // [ui]
   std::wstring themeName = L"auto";
   bool vertical = false;

@@ -1,4 +1,4 @@
-﻿# 下载词库原始文件（雾凇拼音、Rime 五笔86）并编译成 data\ 下的二进制词库。
+﻿# 下载词库原始文件（雾凇拼音、Rime 五笔86、生僻字的拆字/笔画/读音）并编译成 data\ 下的词库。
 # 用法: powershell -NoProfile -ExecutionPolicy Bypass -File tools\fetch_data.ps1 [-Proxy http://127.0.0.1:7890]
 param([string]$Proxy = "http://127.0.0.1:7890", [string]$Python = "python")
 $ErrorActionPreference = "Stop"
@@ -16,6 +16,13 @@ $files = @{
     "rime-ice\opencc_emoji.txt"          = "https://raw.githubusercontent.com/iDvel/rime-ice/main/opencc/emoji.txt"
     "rime-wubi\wubi86.dict.yaml"         = "https://raw.githubusercontent.com/rime/rime-wubi/master/wubi86.dict.yaml"
     "rime-wubi\LICENSE"                  = "https://raw.githubusercontent.com/rime/rime-wubi/master/LICENSE"
+    # 生僻字：拆字（GPL-3.0）、笔画（LGPL-3.0）、带声调的读音（MIT）
+    "rime-ice\radical_pinyin.dict.yaml"  = "https://raw.githubusercontent.com/iDvel/rime-ice/main/radical_pinyin.dict.yaml"
+    "rime-radical-pinyin\LICENSE"        = "https://raw.githubusercontent.com/mirtlecn/rime-radical-pinyin/master/LICENSE"
+    "rime-stroke\stroke.dict.yaml"       = "https://raw.githubusercontent.com/rime/rime-stroke/master/stroke.dict.yaml"
+    "rime-stroke\LICENSE"                = "https://raw.githubusercontent.com/rime/rime-stroke/master/LICENSE"
+    "pinyin-data\pinyin.txt"             = "https://raw.githubusercontent.com/mozillazg/pinyin-data/master/pinyin.txt"
+    "pinyin-data\LICENSE"                = "https://raw.githubusercontent.com/mozillazg/pinyin-data/master/LICENSE"
 }
 foreach ($rel in $files.Keys) {
     $out = Join-Path $src $rel

@@ -50,7 +50,8 @@ try {
     New-Item -ItemType Directory -Force $Target | Out-Null
     New-Item -ItemType Directory -Force (Join-Path $Target "data") | Out-Null
     foreach ($f in @("yyime64.dll", "yyime32.dll", "data\pinyin.bin", "data\wubi86.bin", "data\english.bin",
-                     "data\zh-hans-t-essay-bgw.gram", "data\emoji.txt", "yyime-settings.exe", "uninstall.ps1", "README.txt")) {
+                     "data\zh-hans-t-essay-bgw.gram", "data\emoji.txt", "data\chaizi.txt", "data\stroke.txt",
+                     "yyime-settings.exe", "uninstall.ps1", "README.txt")) {
         $src = Join-Path $Source $f
         if (Test-Path $src) { Copy-Safe $src (Join-Path $Target $f) }
     }

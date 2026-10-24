@@ -1,8 +1,20 @@
 本安装包使用以下数据和算法。许可证全文与本文件一同提供。
 
-拼音、英文词库和 emoji 对照表：iDvel/rime-ice
+拼音、英文词库、emoji 对照表和生僻字大字表：iDvel/rime-ice
 https://github.com/iDvel/rime-ice
 参见 rime-ice-LICENSE.txt。原始词库可通过 tools/fetch_data.ps1 获取。
+
+生僻字拆字表：mirtlecn/rime-radical-pinyin（经 rime-ice 收录的 radical_pinyin.dict.yaml）
+https://github.com/mirtlecn/rime-radical-pinyin
+参见 rime-radical-pinyin-LICENSE.txt（GPL-3.0）。
+
+生僻字笔画表：rime/rime-stroke
+https://github.com/rime/rime-stroke
+参见 rime-stroke-LICENSE.txt（LGPL-3.0）。
+
+汉字带声调读音：mozillazg/pinyin-data
+https://github.com/mozillazg/pinyin-data
+Copyright (c) 2016 mozillazg，参见 pinyin-data-LICENSE.txt（MIT）。
 
 五笔词库：rime/rime-wubi
 https://github.com/rime/rime-wubi

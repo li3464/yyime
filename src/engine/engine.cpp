@@ -150,4 +150,21 @@ const std::vector<std::wstring>* Engine::EmojiFor(const std::wstring& word) {
   return it == emoji_.end() ? nullptr : &it->second;
 }
 
+void Engine::LoadRareTables() {
+  std::call_once(rareOnce_, [this] {
+    chaizi_.Load(dataDir_ + L"\\chaizi.txt");
+    stroke_.Load(dataDir_ + L"\\stroke.txt");
+  });
+}
+
+const CodeTable* Engine::ChaiziTable() {
+  LoadRareTables();
+  return chaizi_.loaded() ? &chaizi_ : nullptr;
+}
+
+const CodeTable* Engine::StrokeTable() {
+  LoadRareTables();
+  return stroke_.loaded() ? &stroke_ : nullptr;
+}
+
 }  // namespace yy

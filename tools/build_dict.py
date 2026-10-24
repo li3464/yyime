@@ -6,6 +6,8 @@
   pinyin.bin   拼音词库（按音节序列建的前缀树）
   wubi86.bin   五笔码表（按编码排序）
   english.bin  英文单词表（按小写排序）
+  emoji.txt    词后面跟的表情
+  chaizi.txt   生僻字拆字表、stroke.txt 笔画表（u 模式用）
 
 所有整数都是小端序，文字统一存成 UTF-16LE，方便 C++ 那边直接用。
 """
@@ -49,6 +51,16 @@ def is_han(ch):
     cp = ord(ch)
     return (0x3400 <= cp <= 0x9FFF or 0xF900 <= cp <= 0xFAFF or 0x20000 <= cp <= 0x3FFFF
             or ch == '〇')
+
+
+RARE_COST = 60000  # 大字表补进来的生僻字的代价，比所有常用词都大；C++ 的 kRareCost 要跟着改
+
+
+def font_ok(ch):
+    """生僻字只收系统字体显示得出来的区：基本区、扩展 A、兼容区、扩展 B（更后面的扩展区多半是方块）"""
+    cp = ord(ch)
+    return (0x3400 <= cp <= 0x4DBF or 0x4E00 <= cp <= 0x9FFF or 0xF900 <= cp <= 0xFAFF
+            or 0x20000 <= cp <= 0x2A6DF or ch == '〇')
 
 
 def to_cost(weight, total):
@@ -172,8 +184,37 @@ def build_pinyin(src, out_path, log):
 
     total = sum(merged.values())
     by_key = defaultdict(list)
+    char_cost = {}  # 单字 -> 最常用读音的代价，生僻字排序用
     for (text, syls), w in merged.items():
-        by_key[tuple(syl_id[s] for s in syls)].append((to_cost(w, total), text))
+        cost = to_cost(w, total)
+        by_key[tuple(syl_id[s] for s in syls)].append((cost, text))
+        if len(text) == 1:
+            char_cost[text] = min(cost, char_cost.get(text, 65535))
+    max_cost = max(c for items in by_key.values() for c, _ in items)
+    if max_cost >= RARE_COST:
+        raise SystemExit(f'常用词的代价 {max_cost} 碰到了生僻字的 {RARE_COST}，要调大 RARE_COST')
+
+    # 大字表里的生僻字补进来，代价固定排在所有常用字后面；音节表不变，认不出的读音不收
+    readings = defaultdict(list)  # 字 -> 不带声调的读音（拆字、笔画的读音备注兜底用）
+    for (text, syls) in merged:
+        if len(text) == 1 and syls[0] not in readings[text]:
+            readings[text].append(syls[0])
+    added = 0
+    rare_path = os.path.join(src, 'rime-ice/cn_dicts_41448.dict.yaml')
+    for row in rime_rows(rare_path) if os.path.exists(rare_path) else []:
+        if len(row) < 2 or len(row[0]) != 1 or not font_ok(row[0]):
+            continue
+        ch, syl = row[0], SPELLING_FIX.get(row[1].strip().lower(), row[1].strip().lower())
+        if syl not in syl_id:
+            continue
+        if syl not in readings[ch]:
+            readings[ch].append(syl)
+        if (ch, (syl,)) in merged:
+            continue
+        merged[(ch, (syl,))] = 0.0
+        by_key[(syl_id[syl],)].append((RARE_COST + (0 if ord(ch) < 0x10000 else 1000), ch))
+        added += 1
+    log(f'生僻字：从大字表补进 {added} 条（代价 {RARE_COST} 起），常用词最大代价 {max_cost}')
     keys = sorted(by_key)
     nodes = build_trie(keys)
 
@@ -216,6 +257,7 @@ def build_pinyin(src, out_path, log):
         log(f'  [{probe}] ' + ' '.join(f'{t}:{c}' for c, t in items))
     chars = sum(w for (t, _), w in merged.items() if len(t) == 1)
     log(f'单字词频占比 {chars / total:.3f}，总词频 {total:.3g}')
+    return char_cost, readings
 
 
 # ---------------------------------------------------------------- 五笔
@@ -301,6 +343,68 @@ def build_emoji(src, out_path, log):
     log(f'emoji.txt: {len(emojis)} 个词')
 
 
+# ---------------------------------------------------------------- 生僻字（u 模式）
+
+def load_tone_readings(src):
+    """pinyin-data 的 pinyin.txt（U+7131: yàn,yì  # 焱）→ 字 -> 'yàn/yì'"""
+    path = os.path.join(src, 'pinyin-data/pinyin.txt')
+    out = {}
+    if not os.path.exists(path):
+        return out
+    with open(path, encoding='utf-8') as f:
+        for raw in f:
+            line = raw.split('#', 1)[0].strip()
+            if not line.startswith('U+') or ':' not in line:
+                continue
+            cp, values = line.split(':', 1)
+            items = [v.strip() for v in values.split(',') if v.strip()]
+            if items:
+                out[chr(int(cp[2:], 16))] = '/'.join(items[:3])
+    return out
+
+
+def build_rare(src, out_dir, char_cost, readings, log):
+    """拆字表和笔画表：每行 编码<TAB>字<TAB>排名<TAB>读音，按编码排好，C++ 那边二分找前缀。
+    排名越小越常用：常用字用拼音词库里的代价，生僻字排在后面（拆字表自带的字频再细分一下）。"""
+    tones = load_tone_readings(src)
+
+    def reading(ch):
+        return tones.get(ch) or '/'.join(readings.get(ch, [])[:3])
+
+    radical_rows = []
+    radical_weight = {}
+    path = os.path.join(src, 'rime-ice/radical_pinyin.dict.yaml')
+    for row in rime_rows(path) if os.path.exists(path) else []:
+        if len(row) < 2 or len(row[0]) != 1:
+            continue
+        code = row[1].strip().lower().replace("'", '').replace(' ', '')
+        if code.isascii() and code.isalpha():
+            radical_rows.append((code, row[0]))
+            w = parse_weight(row[2]) if len(row) > 2 else None
+            radical_weight[row[0]] = max(radical_weight.get(row[0], 0), int(w or 0))
+    stroke_rows = []
+    path = os.path.join(src, 'rime-stroke/stroke.dict.yaml')
+    for row in rime_rows(path) if os.path.exists(path) else []:
+        if len(row) >= 2 and len(row[0]) == 1 and row[1] and set(row[1]) <= set('hspnz'):
+            stroke_rows.append((row[1], row[0]))
+
+    def rank(ch):
+        if ch in char_cost:
+            return char_cost[ch]
+        return RARE_COST + (0 if ord(ch) < 0x10000 else 2000) - min(radical_weight.get(ch, 0), 999)
+
+    for name, rows in (('chaizi.txt', radical_rows), ('stroke.txt', stroke_rows)):
+        lines = set()
+        for code, ch in rows:
+            r = reading(ch)
+            if font_ok(ch) and r:  # 读不出来、显示不了的字不收
+                lines.add((code, rank(ch), ch, r))
+        with open(os.path.join(out_dir, name), 'w', encoding='utf-8', newline='\n') as f:
+            for code, rk, ch, r in sorted(lines):
+                f.write(f'{code}\t{ch}\t{rk}\t{r}\n')
+        log(f'{name}: {len(lines)} 行，{len({ch for _, _, ch, _ in lines})} 个字')
+
+
 def main():
     src, out_dir, report = sys.argv[1], sys.argv[2], sys.argv[3]
     os.makedirs(out_dir, exist_ok=True)
@@ -311,7 +415,8 @@ def main():
         with open(report, 'w', encoding='utf-8') as f:
             f.write('\n'.join(lines) + '\n')
 
-    build_pinyin(src, os.path.join(out_dir, 'pinyin.bin'), log)
+    char_cost, readings = build_pinyin(src, os.path.join(out_dir, 'pinyin.bin'), log)
+    build_rare(src, out_dir, char_cost, readings, log)
     build_wubi(src, os.path.join(out_dir, 'wubi86.bin'), log)
     build_english(src, os.path.join(out_dir, 'english.bin'), log)
     build_emoji(src, os.path.join(out_dir, 'emoji.txt'), log)

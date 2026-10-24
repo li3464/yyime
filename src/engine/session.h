@@ -91,6 +91,8 @@ class InputSession {
   SessionResult PickChar(bool last);  // 以词定字：取高亮词的第一个/最后一个字
   bool VMode() const;                 // 全拼下 v 开头：数字、计算、符号
   void FillVMode(const std::string& rest);
+  bool UMode() const;                 // 全拼下 u 开头：生僻字（拆字、笔画）
+  void FillUMode(const std::string& rest);
   void AddEmoji(size_t restLen);
   SessionResult CommitRaw();
   void Backspace();
@@ -109,6 +111,7 @@ class InputSession {
   bool wubiAutoCommit_ = true, aiEnabled_ = true;
   bool sentenceModel_ = true;
   bool emoji_ = true;
+  bool rare_ = true;
   std::wstring hint_;  // v 模式之类的提示，显示在候选框顶上那行右边
   KeyChord composeKey_ = ParseKeyChord(L"Tab");
   FuzzyRules fuzzy_;

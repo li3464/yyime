@@ -5,6 +5,9 @@
 #include <cstdlib>
 #include <cstdio>
 #include <map>
+#include <unordered_set>
+
+#include "util.h"
 
 namespace yy {
 
@@ -243,6 +246,87 @@ const std::vector<std::wstring>* SymbolCategory(std::string_view code) {
 
 std::wstring VModeHint() {
   return L"数字 v123 · 计算 v1+2 · 符号 fh jt sx dw xl xh bd jh bq py";
+}
+
+// ---------------------------------------------------------------- 生僻字
+
+bool CodeTable::Load(const std::wstring& path) {
+  if (!ReadTextFile(path, &blob_)) return false;
+  lines_.clear();
+  for (size_t pos = 0; pos < blob_.size();) {
+    size_t nl = blob_.find('\n', pos);
+    if (nl == std::string::npos) nl = blob_.size();
+    if (nl > pos) lines_.push_back(uint32_t(pos));
+    pos = nl + 1;
+  }
+  return !lines_.empty();
+}
+
+CodeTable::Row CodeTable::RowAt(size_t i) const {
+  size_t start = lines_[i];
+  size_t end = blob_.find('\n', start);
+  if (end == std::string::npos) end = blob_.size();
+  std::string_view line(blob_.data() + start, end - start);
+  if (!line.empty() && line.back() == '\r') line.remove_suffix(1);
+  Row r;
+  size_t a = line.find('\t');
+  size_t b = a == std::string_view::npos ? a : line.find('\t', a + 1);
+  size_t c = b == std::string_view::npos ? b : line.find('\t', b + 1);
+  r.code = line.substr(0, a);
+  if (c == std::string_view::npos) return r;
+  r.text = line.substr(a + 1, b - a - 1);
+  r.rank = std::atoi(std::string(line.substr(b + 1, c - b - 1)).c_str());
+  r.reading = line.substr(c + 1);
+  return r;
+}
+
+std::vector<CodeTable::Row> CodeTable::WithPrefix(std::string_view prefix) const {
+  // 行按编码排好序，编码以 prefix 开头的行挨在一起：二分找到第一行，往后数到不再匹配
+  size_t lo = 0, hi = lines_.size();
+  while (lo < hi) {
+    size_t mid = (lo + hi) / 2;
+    if (RowAt(mid).code < prefix) lo = mid + 1;
+    else hi = mid;
+  }
+  std::vector<Row> out;
+  for (size_t i = lo; i < lines_.size(); ++i) {
+    Row r = RowAt(i);
+    if (r.code.substr(0, prefix.size()) != prefix) break;
+    if (!r.text.empty()) out.push_back(r);
+  }
+  return out;
+}
+
+std::vector<RareHit> FindRare(const CodeTable* chaizi, const CodeTable* stroke, std::string_view body, size_t limit) {
+  std::vector<RareHit> out;
+  if (body.empty()) return out;
+  const bool strokesOnly = body.find_first_not_of("hspnz") == std::string_view::npos;
+  // 分组：笔画（只打了 hspnz 时）在前、拆字在后；每张表里整个对上的在前、还没打完的在后
+  std::vector<std::pair<const CodeTable*, bool>> groups;
+  if (strokesOnly && stroke) groups.push_back({stroke, true}), groups.push_back({stroke, false});
+  if (chaizi) groups.push_back({chaizi, true}), groups.push_back({chaizi, false});
+  std::unordered_set<std::string_view> seen;
+  std::vector<CodeTable::Row> rows;
+  const CodeTable* loadedFor = nullptr;
+  for (auto [table, exact] : groups) {
+    if (table != loadedFor) rows = table->WithPrefix(body), loadedFor = table;
+    std::vector<const CodeTable::Row*> group;
+    for (const auto& r : rows)
+      if ((r.code.size() == body.size()) == exact) group.push_back(&r);
+    std::stable_sort(group.begin(), group.end(), [](const CodeTable::Row* x, const CodeTable::Row* y) {
+      return x->rank < y->rank;
+    });
+    for (const CodeTable::Row* r : group) {
+      if (out.size() >= limit) return out;
+      if (!seen.insert(r->text).second) continue;
+      out.push_back({Utf8ToWide(r->text), Utf8ToWide(r->reading), exact});
+    }
+  }
+  return out;
+}
+
+std::wstring UModeHint() {
+  return L"生僻字 · 拆字：u+各部分拼音 uhuohuohuo→焱 · 笔画：u+h横 s竖 p撇 n点 z折";
 }
 
 }  // namespace yy
