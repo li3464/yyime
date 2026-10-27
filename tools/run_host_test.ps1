@@ -1,8 +1,11 @@
 ﻿# 端到端测试：不用重装输入法，直接测 build 目录里刚编好的 DLL。
 # 原理：测试程序旁边放一个清单文件，让 COM 从旁边加载 DLL，而不是用系统里登记的那份。
 # 注意：测试时会有一个 2x2 像素的小窗口在右下角拿走键盘焦点一两秒。
-# 用法: powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_host_test.ps1 [-Arch x64|x86]
-param([ValidateSet("x64", "x86")][string]$Arch = "x64", [string]$MockBaseUrl = "")
+# 用法: powershell -NoProfile -ExecutionPolicy Bypass -File tools\run_host_test.ps1 [-Arch x64|x86] [-UiLess]
+# -UiLess：模拟全屏游戏（比如英雄联盟）：只让 TSF 加载声明支持 UIElement 的输入法，候选想自己画。
+#          检查 yy 能加载、候选框始终是 yy 自己的、从不把候选交给游戏。
+#          注意 TSF 看的是系统里登记的那份输入法的能力，所以要先装上新版才测得到
+param([ValidateSet("x64", "x86")][string]$Arch = "x64", [string]$MockBaseUrl = "", [switch]$UiLess)
 $ErrorActionPreference = "Stop"
 $root = Split-Path $PSScriptRoot -Parent
 $bin = if ($env:LLVM_MINGW) { "$env:LLVM_MINGW\bin" } else { "C:\Users\17821\tools\llvm-mingw\bin" }
@@ -35,6 +38,7 @@ $env:YYIME_USER_DIR = "$work\user"
 $env:YYIME_DATA_DIR = "$root\data"
 $hostArguments = "`"$work\result.txt`" local"
 if ($MockBaseUrl) { $hostArguments += ' ai' }
+if ($UiLess) { $hostArguments += ' uiless' }
 $p = Start-Process "$work\host.exe" -ArgumentList $hostArguments -WorkingDirectory $work -Wait -PassThru -WindowStyle Hidden
 Remove-Item Env:YYIME_USER_DIR, Env:YYIME_DATA_DIR
 Get-Content "$work\result.txt" -Encoding UTF8

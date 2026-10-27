@@ -18,6 +18,9 @@ const GUID* const kCategories[] = {
     &tsfx::GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT,
     &tsfx::GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT,
     &tsfx::GUID_TFCAT_TIPCAP_COMLESS,
+    // 游戏（比如英雄联盟）常让 TSF 只加载声明了这一项的输入法，不声明在游戏里就用不了。
+    // 声明了，但候选始终自己画、不交给游戏（交出去英雄联盟会再画一份，成了两个候选框）
+    &tsfx::GUID_TFCAT_TIPCAP_UIELEMENTENABLED,
 };
 
 std::wstring GuidString(const GUID& g) {

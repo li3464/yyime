@@ -249,6 +249,44 @@ class TextStore final : public ITextStoreACP {
   DWORD pending_ = 0;
 };
 
+// 模拟全屏游戏：输入法要是把候选列表交过来，就说“我自己画”（show = FALSE）。
+// yy 应该从来不交（交出去英雄联盟会再画一份），这里只数它交了几次
+class UiSink final : public ITfUIElementSink {
+ public:
+  int begins = 0;
+  STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
+    if (IsEqualIID(riid, IID_IUnknown) || IsEqualIID(riid, IID_ITfUIElementSink)) {
+      *ppv = static_cast<ITfUIElementSink*>(this);
+      return S_OK;
+    }
+    *ppv = nullptr;
+    return E_NOINTERFACE;
+  }
+  STDMETHODIMP_(ULONG) AddRef() override { return 2; }  // 栈上的对象，不按引用计数释放
+  STDMETHODIMP_(ULONG) Release() override { return 1; }
+  STDMETHODIMP BeginUIElement(DWORD, WINBOOL* show) override {
+    ++begins;
+    if (show) *show = FALSE;
+    return S_OK;
+  }
+  STDMETHODIMP UpdateUIElement(DWORD) override { return S_OK; }
+  STDMETHODIMP EndUIElement(DWORD) override { return S_OK; }
+};
+
+// 本线程里 yy 的候选窗口是不是显示着
+static BOOL CALLBACK FindVisibleCandidateWindow(HWND w, LPARAM p) {
+  wchar_t cls[64] = {};
+  GetClassNameW(w, cls, 63);
+  if (wcscmp(cls, L"yyime.candidate") == 0 && IsWindowVisible(w)) *reinterpret_cast<bool*>(p) = true;
+  return TRUE;
+}
+
+static bool OwnCandidateWindowVisible() {
+  bool visible = false;
+  EnumThreadWindows(GetCurrentThreadId(), FindVisibleCandidateWindow, reinterpret_cast<LPARAM>(&visible));
+  return visible;
+}
+
 static void SendKey(ITfKeystrokeMgr* km, TextStore* store, UINT vk, wchar_t ch) {
   UINT sc = MapVirtualKeyW(vk, MAPVK_VK_TO_VSC);
   LPARAM down = 1 | (LPARAM(sc) << 16);
@@ -319,12 +357,32 @@ int wmain(int argc, wchar_t** argv) {
     SetFocus(hwnd);
   }
 
+  // uiless：像全屏游戏那样，只让 TSF 加载声明支持 UIElement 的输入法，候选由“游戏”自己画
+  bool uiless = false;
+  for (int i = 3; i < argc; ++i) uiless = uiless || wcscmp(argv[i], L"uiless") == 0;
   ITfThreadMgr* tm = nullptr;
   HRESULT hr = CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER, IID_ITfThreadMgr,
                                 reinterpret_cast<void**>(&tm));
   TfClientId cid = 0;
-  if (SUCCEEDED(hr)) hr = tm->Activate(&cid);
-  snprintf(line, sizeof(line), "TSF 线程管理器: 0x%08lx\n", hr);
+  UiSink uiSink;
+  DWORD uiSinkCookie = TF_INVALID_COOKIE;
+  if (SUCCEEDED(hr) && uiless) {
+    ITfThreadMgrEx* tmx = nullptr;
+    hr = tm->QueryInterface(IID_ITfThreadMgrEx, reinterpret_cast<void**>(&tmx));
+    if (SUCCEEDED(hr)) {
+      hr = tmx->ActivateEx(&cid, TF_TMAE_UIELEMENTENABLEDONLY);
+      tmx->Release();
+    }
+    ITfSource* src = nullptr;
+    if (SUCCEEDED(hr) && SUCCEEDED(tm->QueryInterface(IID_ITfSource, reinterpret_cast<void**>(&src)))) {
+      src->AdviseSink(IID_ITfUIElementSink, static_cast<ITfUIElementSink*>(&uiSink), &uiSinkCookie);
+      src->Release();
+    }
+  } else if (SUCCEEDED(hr)) {
+    hr = tm->Activate(&cid);
+  }
+  snprintf(line, sizeof(line), "TSF 线程管理器%s: 0x%08lx\n", uiless ? "（只要支持 UIElement 的输入法，候选自己画）" : "",
+           hr);
   g_out += line;
   if (FAILED(hr)) return 1;
 
@@ -344,6 +402,50 @@ int wmain(int argc, wchar_t** argv) {
   snprintf(line, sizeof(line), "TSF 认为本线程有焦点: %d；本线程焦点窗口=%p 前台窗口是自己的=%d\n", int(threadFocus),
            (void*)GetFocus(), int(GetForegroundWindow() == hwnd));
   g_out += line;
+  int pass = 0, total = 0;
+
+  if (uiless) {
+    auto check = [&](bool ok, const std::string& what) {
+      ++total;
+      pass += ok;
+      g_out += std::string(ok ? "  通过  " : "  不对  ") + what + "\n";
+    };
+    TextStore* store = new TextStore();
+    store->hwnd = hwnd;
+    store->caret = caret;
+    ITfDocumentMgr* dm = nullptr;
+    ITfContext* ctx = nullptr;
+    TfEditCookie ec = 0;
+    tm->CreateDocumentMgr(&dm);
+    dm->CreateContext(cid, 0, static_cast<ITextStoreACP*>(store), &ctx, &ec);
+    dm->Push(ctx);
+    if (local) {
+      ITfDocumentMgr* prev = nullptr;
+      tm->AssociateFocus(hwnd, dm, &prev);
+      if (prev) prev->Release();
+      SetFocus(nullptr);
+      SetFocus(hwnd);
+    }
+    tm->SetFocus(dm);
+    Pump(30);
+    Type(km, store, "nihao");
+    Pump(100);
+    check(OwnCandidateWindowVisible(), "打 nihao：yy 被加载，显示的是 yy 自己的候选框");
+    check(uiSink.begins == 0, "候选没交给“游戏”（交了 " + std::to_string(uiSink.begins) + " 次）");
+    Type(km, store, "{sp}");
+    Pump(100);
+    check(store->text == L"你好", "按空格上屏 →「" + Utf8(store->text) + "」");
+    check(!OwnCandidateWindowVisible(), "上屏后候选框收起");
+    Type(km, store, "zhongguo{esc}");
+    Pump(100);
+    check(store->text == L"你好" && uiSink.begins == 0, "Esc 取消 → 文字没变「" + Utf8(store->text) + "」，候选始终没交出去");
+
+    tm->SetFocus(nullptr);
+    dm->Pop(TF_POPF_ALL);
+    ctx->Release();
+    dm->Release();
+    store->Release();
+  }
 
   struct Case {
     const char* keys;
@@ -372,7 +474,7 @@ int wmain(int argc, wchar_t** argv) {
     cases.push_back({"{translate}{wait}{sp}", L"Hello, world!", L"你好世界"});
     cases.push_back({"{translate}{wait}{esc}", L""});
   }
-  int pass = 0, total = 0;
+  if (uiless) cases.clear();  // 上面已经单独测过
   for (auto& c : cases) {
     TextStore* store = new TextStore();
     store->text = c.initial;
@@ -418,7 +520,7 @@ int wmain(int argc, wchar_t** argv) {
   if (SUCCEEDED(tm->QueryInterface(IID_ITfLangBarItemMgr, reinterpret_cast<void**>(&items))) &&
       SUCCEEDED(items->GetItem(tsfx::GUID_LBI_INPUTMODE, &item)))
     item->QueryInterface(tsfx::IID_ITfLangBarItemButton, reinterpret_cast<void**>(&button));
-  for (int attempt = 0; attempt < 2; ++attempt) {
+  for (int attempt = 0; attempt < (uiless ? 0 : 2); ++attempt) {  // uiless 模式不测托盘菜单
     if (attempt == 1) {
       // 托盘不应依赖某个仍然存活的输入控件。
       DestroyWindow(hwnd);
@@ -440,6 +542,13 @@ int wmain(int argc, wchar_t** argv) {
   g_out += line;
   if (km) km->Release();
   if (pm) pm->Release();
+  if (uiSinkCookie != TF_INVALID_COOKIE) {
+    ITfSource* src = nullptr;
+    if (SUCCEEDED(tm->QueryInterface(IID_ITfSource, reinterpret_cast<void**>(&src)))) {
+      src->UnadviseSink(uiSinkCookie);
+      src->Release();
+    }
+  }
   tm->Deactivate();
   tm->Release();
   Pump(50);

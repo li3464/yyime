@@ -4,6 +4,7 @@
 #include <cmath>
 #include <mutex>
 
+#include "../engine/util.h"
 #include "../tsf/globals.h"
 
 namespace yy {
@@ -226,9 +227,15 @@ IDWriteTextLayout* CandidateWindow::MakeLayout(const std::wstring& s, IDWriteTex
 // ---------------------------------------------------------------- 绘制
 
 void CandidateWindow::Render(const RECT& caret) {
-  if (!EnsureDevice()) return;
+  if (!EnsureDevice()) {
+    Log(L"候选框画不出来：Direct2D / DirectWrite 初始化失败");
+    return;
+  }
   const float s = float(WindowDpi(hwnd_)) / 96.0f;
-  if (!EnsureFormats(s)) return;
+  if (!EnsureFormats(s)) {
+    Log(L"候选框画不出来：字体建不起来");
+    return;
+  }
 
   bool anyAi = false;
   for (auto& it : view_.items) anyAi = anyAi || it.ai;
@@ -410,11 +417,15 @@ void CandidateWindow::Render(const RECT& caret) {
     POINT dst{wx, wy}, src{0, 0};
     SIZE size{W, H};
     BLENDFUNCTION bf{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
-    UpdateLayeredWindow(hwnd_, nullptr, &dst, &size, memDC_, &src, 0, &bf, ULW_ALPHA);
+    BOOL layered = UpdateLayeredWindow(hwnd_, nullptr, &dst, &size, memDC_, &src, 0, &bf, ULW_ALPHA);
+    // 每次都重新放到最上层：游戏窗口自己也常是置顶的，只在第一次显示时摆一次会被它盖住
+    SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
     if (!visible_) {
-      SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+      Log(L"候选框显示在 (%d,%d) %dx%d，绘制 hr=0x%08lx，贴图=%d", wx, wy, W, H, hr, int(layered));
       visible_ = true;
     }
+  } else {
+    Log(L"候选框画布没建起来（%dx%d）", W, H);
   }
 
   for (auto& b : boxes) {

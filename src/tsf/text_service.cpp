@@ -191,7 +191,11 @@ STDMETHODIMP TextService::ActivateEx(ITfThreadMgr* ptim, TfClientId tid, DWORD f
   activateFlags_ = flags;
   Engine::Get().EnsureInit();
   SyncConfig();
-  Log(L"激活 flags=0x%lx", flags);
+  wchar_t exe[MAX_PATH] = L"";
+  GetModuleFileNameW(nullptr, exe, MAX_PATH);
+  const wchar_t* exeName = wcsrchr(exe, L'\\');
+  // flags 里 0x4 是“只加载支持 UIElement 的输入法”（游戏常开），0x2 是安全模式
+  Log(L"激活 flags=0x%lx 进程=%ls", flags, exeName ? exeName + 1 : exe);
   if (!InitThreadMgrSinks() || !InitKeySink()) {
     Deactivate();
     return E_FAIL;
@@ -791,7 +795,19 @@ void TextService::UpdateCandidateWindow(TfEditCookie ec, ITfContext* pic) {
       got = true;
     }
   }
+  if (!got) {
+    // 游戏常常不报光标位置：放到游戏窗口左下方（英雄联盟的聊天框在那一带），别跑到屏幕左上角
+    HWND w = contextWnd_ ? contextWnd_ : GetForegroundWindow();
+    RECT wr{};
+    if (w && GetWindowRect(w, &wr) && wr.right > wr.left && wr.bottom > wr.top) {
+      const LONG width = wr.right - wr.left, height = wr.bottom - wr.top;
+      rc = RECT{wr.left + width / 50, wr.top + height * 2 / 3, wr.left + width / 50 + 2, wr.top + height * 2 / 3 + 20};
+      got = true;
+      Log(L"程序没给光标位置，候选框放到窗口左下方");
+    }
+  }
   if (got) lastCaret_ = rc;
+  Log(L"光标位置 (%ld,%ld)-(%ld,%ld)", lastCaret_.left, lastCaret_.top, lastCaret_.right, lastCaret_.bottom);
   RefreshCandidateWindow();
 }
 
